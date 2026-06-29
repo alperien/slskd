@@ -160,6 +160,34 @@ public class Transfer
     public DateTime? NextAttemptAt { get; set; } = null;
 
     /// <summary>
+    ///     Gets or sets the <see cref="Id"/> of the Transfer that this Transfer was created to replace, if it was
+    ///     created by the auto-replace system, or null if it was not.
+    /// </summary>
+    /// <remarks>
+    ///     Applicable to downloads only.  Used to track the lineage of auto-replaced downloads.
+    /// </remarks>
+    public Guid? ReplacesId { get; set; } = null;
+
+    /// <summary>
+    ///     Gets or sets the number of alternate sources that have been tried for this download via the auto-replace
+    ///     system.  Carried forward across each replacement in a lineage to enforce the maximum candidate limit.
+    /// </summary>
+    /// <remarks>
+    ///     Applicable to downloads only.
+    /// </remarks>
+    public int ReplacementAttempts { get; set; } = 0;
+
+    /// <summary>
+    ///     Gets or sets a delimited list of usernames that have already been tried (and failed or stalled) for this
+    ///     download across its auto-replace lineage, used to avoid re-selecting a known-bad source.
+    /// </summary>
+    /// <remarks>
+    ///     Applicable to downloads only.  Persisted for internal bookkeeping and not exposed via the API.
+    /// </remarks>
+    [JsonIgnore]
+    public string AttemptedUsernames { get; set; } = null;
+
+    /// <summary>
     ///     Gets or sets a value indicating whether the Transfer has been removed from the UI.
     /// </summary>
     public bool Removed { get; set; }

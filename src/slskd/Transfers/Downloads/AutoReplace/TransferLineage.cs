@@ -1,4 +1,4 @@
-// <copyright file="Extensions.cs" company="JP Dillingham">
+// <copyright file="TransferLineage.cs" company="JP Dillingham">
 //           ▄▄▄▄     ▄▄▄▄     ▄▄▄▄
 //     ▄▄▄▄▄▄█  █▄▄▄▄▄█  █▄▄▄▄▄█  █
 //     █__ --█  █__ --█    ◄█  -  █
@@ -30,34 +30,27 @@
 //   ╰───────────────────────────────────────────╶──── ─ ─── ─  ── ──┈  ┈
 // </copyright>
 
-namespace slskd.Transfers
+namespace slskd.Transfers.Downloads;
+
+using System;
+
+/// <summary>
+///     Auto-replace lineage to assign to a newly enqueued replacement download.
+/// </summary>
+public record TransferLineage
 {
-    public static class Extensions
-    {
-        public static Transfer WithSoulseekTransfer(this Transfer transfer, Soulseek.Transfer t)
-        {
-            return new Transfer()
-            {
-                BatchId = transfer.BatchId,
-                Id = transfer.Id,
-                Username = transfer.Username,
-                Direction = transfer.Direction,
-                Filename = transfer.Filename,
-                Size = transfer.Size,
-                State = t.State,
-                RequestedAt = transfer.RequestedAt,
-                EnqueuedAt = transfer.EnqueuedAt,
-                StartedAt = t.StartTime,
-                EndedAt = t.EndTime,
-                BytesTransferred = t.BytesTransferred,
-                AverageSpeed = t.AverageSpeed,
-                Exception = t.Exception?.Message,
-                Attempts = transfer.Attempts,
-                NextAttemptAt = transfer.NextAttemptAt,
-                ReplacesId = transfer.ReplacesId,
-                ReplacementAttempts = transfer.ReplacementAttempts,
-                AttemptedUsernames = transfer.AttemptedUsernames,
-            };
-        }
-    }
+    /// <summary>
+    ///     Gets the identifier of the transfer being replaced.
+    /// </summary>
+    public Guid? ReplacesId { get; init; }
+
+    /// <summary>
+    ///     Gets the cumulative number of alternate sources tried in this lineage.
+    /// </summary>
+    public int ReplacementAttempts { get; init; }
+
+    /// <summary>
+    ///     Gets the delimited list of usernames already tried in this lineage.
+    /// </summary>
+    public string AttemptedUsernames { get; init; }
 }
