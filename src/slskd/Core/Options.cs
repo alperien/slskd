@@ -980,6 +980,12 @@ namespace slskd
                 public RetryOptions Retry { get; init; } = new RetryOptions();
 
                 /// <summary>
+                ///     Gets download auto-replace options.
+                /// </summary>
+                [Validate]
+                public AutoReplaceOptions AutoReplace { get; init; } = new AutoReplaceOptions();
+
+                /// <summary>
                 ///     Gets download destination options.
                 /// </summary>
                 [Validate]
@@ -1013,6 +1019,136 @@ namespace slskd
                     /// </summary>
                     [Enum(typeof(RetryPartialStrategy))]
                     public string Partial { get; init; } = RetryPartialStrategy.Resume.ToString().ToLowerInvariant();
+                }
+
+                /// <summary>
+                ///     Download auto-replace options.
+                /// </summary>
+                /// <remarks>
+                ///     The auto-replace system finds alternate sources for downloads that have failed (after exhausting
+                ///     same-source retries) or stalled (made no progress for a configurable period), and transparently
+                ///     re-enqueues the file from a healthy peer found via a network search.
+                /// </remarks>
+                public class AutoReplaceOptions
+                {
+                    /// <summary>
+                    ///     Gets a value indicating whether the auto-replace system is enabled.
+                    /// </summary>
+                    [Argument(default, "download-auto-replace")]
+                    [EnvironmentVariable("DOWNLOAD_AUTO_REPLACE")]
+                    [Description("enable automatic replacement of failed and stalled downloads with alternate sources")]
+                    public bool Enabled { get; init; } = true;
+
+                    /// <summary>
+                    ///     Gets a value indicating whether downloads that fail after exhausting same-source retries
+                    ///     should be replaced with an alternate source.
+                    /// </summary>
+                    public bool OnFailure { get; init; } = true;
+
+                    /// <summary>
+                    ///     Gets a value indicating whether downloads that stall (make no progress) should be replaced
+                    ///     with an alternate source.
+                    /// </summary>
+                    public bool OnStall { get; init; } = true;
+
+                    /// <summary>
+                    ///     Gets the maximum number of alternate sources to try for a single file before giving up.
+                    /// </summary>
+                    [Range(1, 100)]
+                    public int MaxCandidates { get; init; } = 5;
+
+                    /// <summary>
+                    ///     Gets the time, in milliseconds, that an in-progress download may make no progress before it
+                    ///     is considered stalled.
+                    /// </summary>
+                    [Range(10_000, int.MaxValue)]
+                    public int StallTimeout { get; init; } = 60_000;
+
+                    /// <summary>
+                    ///     Gets the time, in milliseconds, that a download may remain remotely queued without advancing
+                    ///     before it is considered stalled.
+                    /// </summary>
+                    [Range(60_000, int.MaxValue)]
+                    public int QueueStallTimeout { get; init; } = 1_800_000;
+
+                    /// <summary>
+                    ///     Gets the maximum age, in milliseconds, of a failed download that is eligible for replacement.
+                    ///     Failures older than this (e.g. from a previous run) are ignored to avoid reviving stale history.
+                    /// </summary>
+                    [Range(60_000, int.MaxValue)]
+                    public int MaxAge { get; init; } = 3_600_000;
+
+                    /// <summary>
+                    ///     Gets the cooldown, in milliseconds, before searching again for a file for which no suitable
+                    ///     alternate source was previously found.
+                    /// </summary>
+                    [Range(10_000, int.MaxValue)]
+                    public int SearchCooldown { get; init; } = 60_000;
+
+                    /// <summary>
+                    ///     Gets candidate matching options.
+                    /// </summary>
+                    [Validate]
+                    public MatchOptions Match { get; init; } = new MatchOptions();
+
+                    /// <summary>
+                    ///     Gets search options used when locating alternate sources.
+                    /// </summary>
+                    [Validate]
+                    public SearchOptions Search { get; init; } = new SearchOptions();
+
+                    /// <summary>
+                    ///     Auto-replace candidate matching options.
+                    /// </summary>
+                    public class MatchOptions
+                    {
+                        /// <summary>
+                        ///     Gets a value indicating whether a candidate file's size must match the original within
+                        ///     <see cref="SizeToleranceBytes"/>.
+                        /// </summary>
+                        public bool RequireExactSize { get; init; } = true;
+
+                        /// <summary>
+                        ///     Gets the allowed difference, in bytes, between a candidate file's size and the original
+                        ///     when <see cref="RequireExactSize"/> is enabled.
+                        /// </summary>
+                        [Range(0, int.MaxValue)]
+                        public int SizeToleranceBytes { get; init; } = 0;
+
+                        /// <summary>
+                        ///     Gets a value indicating whether a candidate file's extension must match the original.
+                        /// </summary>
+                        public bool RequireSameExtension { get; init; } = true;
+
+                        /// <summary>
+                        ///     Gets a value indicating whether a candidate source must advertise a free upload slot.
+                        /// </summary>
+                        public bool RequireFreeUploadSlot { get; init; } = false;
+
+                        /// <summary>
+                        ///     Gets the minimum advertised upload speed, in bytes per second, for a candidate source.
+                        /// </summary>
+                        [Range(0, int.MaxValue)]
+                        public int MinimumUploadSpeed { get; init; } = 0;
+                    }
+
+                    /// <summary>
+                    ///     Auto-replace search options.
+                    /// </summary>
+                    public class SearchOptions
+                    {
+                        /// <summary>
+                        ///     Gets the search timeout, in milliseconds.
+                        /// </summary>
+                        [Range(1000, int.MaxValue)]
+                        public int Timeout { get; init; } = 10_000;
+
+                        /// <summary>
+                        ///     Gets the maximum number of responses to accept for an alternate-source search.
+                        /// </summary>
+                        [Range(1, int.MaxValue)]
+                        public int ResponseLimit { get; init; } = 50;
+                    }
                 }
 
                 /// <summary>

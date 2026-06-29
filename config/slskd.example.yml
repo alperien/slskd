@@ -83,6 +83,24 @@
 #       exists: rename # 'overwrite' or 'rename'
 #       permissions:
 #         mode: ~ # chmod syntax, e.g. 644, 777. does nothing on Windows. 
+#     auto_replace:
+#       enabled: true # automatically replace failed/stalled downloads with an alternate source
+#       on_failure: true # replace downloads that fail after exhausting same-source retries
+#       on_stall: true # replace downloads that make no progress
+#       max_candidates: 5 # maximum number of alternate sources to try for a single file
+#       stall_timeout: 60000 # ms an in-progress download may make no progress before it is considered stalled
+#       queue_stall_timeout: 1800000 # ms a remotely queued download may go without advancing before it is considered stalled
+#       max_age: 3600000 # ignore failures older than this (ms) to avoid reviving stale history
+#       search_cooldown: 60000 # ms to wait before searching again for a file with no available alternate source
+#       match:
+#         require_exact_size: true # a candidate's size must match the original (within size_tolerance_bytes)
+#         size_tolerance_bytes: 0 # allowed difference in bytes when require_exact_size is enabled
+#         require_same_extension: true # a candidate's extension must match the original
+#         require_free_upload_slot: false # a candidate source must advertise a free upload slot
+#         minimum_upload_speed: 0 # minimum advertised upload speed, in bytes per second, for a candidate source
+#       search:
+#         timeout: 10000 # search timeout, in milliseconds
+#         response_limit: 50 # maximum number of responses to accept for an alternate-source search
 #   groups:
 #     default:
 #       upload:

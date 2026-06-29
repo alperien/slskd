@@ -788,6 +788,10 @@ namespace slskd
             services.AddSingleton<IBatchService, BatchService>();
             services.AddSingleton<FileService>();
 
+            services.AddSingleton<StallDetector>();
+            services.AddSingleton<IAutoReplaceService, AutoReplaceService>();
+            services.AddHostedService<AutoReplaceMonitor>();
+
             services.AddSingleton<IRelayService, RelayService>();
 
             services.AddSingleton<IFTPClientFactory, FTPClientFactory>();

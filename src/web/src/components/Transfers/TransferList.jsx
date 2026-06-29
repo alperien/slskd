@@ -144,6 +144,21 @@ class TransferList extends Component {
                         </Table.Cell>
                         <Table.Cell className="transferlist-filename">
                           {getFileName(f.filename)}
+                          {f.direction === 'Download' &&
+                            f.replacementAttempts > 0 && (
+                              <Popup
+                                content={`Auto-replaced from a failed or stalled source (${f.replacementAttempts} alternate ${f.replacementAttempts === 1 ? 'source' : 'sources'} tried)`}
+                                position="top center"
+                                trigger={
+                                  <Icon
+                                    color="teal"
+                                    name="exchange"
+                                    size="small"
+                                    style={{ marginLeft: 6 }}
+                                  />
+                                }
+                              />
+                            )}
                         </Table.Cell>
                         <Table.Cell className="transferlist-progress">
                           {f.state === 'InProgress' ? (
@@ -180,6 +195,9 @@ class TransferList extends Component {
                               {f.state}
                               {f.placeInQueue ? ` (#${f.placeInQueue})` : ''}
                               {f.attempts > 1 ? ` (Retry #${f.attempts})` : ''}
+                              {f.replacementAttempts > 0
+                                ? ` (Alt #${f.replacementAttempts})`
+                                : ''}
                             </Button>
                           )}
                         </Table.Cell>

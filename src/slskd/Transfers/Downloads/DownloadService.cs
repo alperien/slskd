@@ -100,12 +100,13 @@ namespace slskd.Transfers.Downloads
         /// <param name="username">The username of remote user.</param>
         /// <param name="files">The list of files to enqueue.</param>
         /// <param name="batchId">The optional batch id for the transfers.</param>
+        /// <param name="lineage">The optional auto-replace lineage to assign to the enqueued transfer(s).</param>
         /// <param name="cancellationToken">The token to monitor for cancellation.</param>
         /// <returns>The operation context.</returns>
         /// <exception cref="ArgumentException">Thrown when the username is null or an empty string.</exception>
         /// <exception cref="ArgumentException">Thrown when no files are requested.</exception>
         /// <exception cref="AggregateException">Thrown when at least one of the requested files throws.</exception>
-        Task<(List<Transfer> Enqueued, List<(string Filename, string Message)> Failed)> EnqueueAsync(string username, IEnumerable<(string Filename, long Size)> files, Guid? batchId = null, CancellationToken cancellationToken = default);
+        Task<(List<Transfer> Enqueued, List<(string Filename, string Message)> Failed)> EnqueueAsync(string username, IEnumerable<(string Filename, long Size)> files, Guid? batchId = null, TransferLineage lineage = null, CancellationToken cancellationToken = default);
 
         /// <summary>
         ///     Finds a single download matching the specified <paramref name="expression"/>.
@@ -291,12 +292,13 @@ namespace slskd.Transfers.Downloads
         /// <param name="username">The username of the remote user.</param>
         /// <param name="files">The list of files to enqueue.</param>
         /// <param name="batchId">The optional batch id for the transfers.</param>
+        /// <param name="lineage">The optional auto-replace lineage to assign to the enqueued transfer(s).</param>
         /// <param name="cancellationToken">The token to monitor for cancellation.</param>
         /// <returns>The operation context.</returns>
         /// <exception cref="ArgumentException">Thrown when the username is null or an empty string.</exception>
         /// <exception cref="ArgumentException">Thrown when no files are requested.</exception>
         /// <exception cref="AggregateException">Thrown when at least one of the requested files throws.</exception>
-        public async Task<(List<Transfer> Enqueued, List<(string Filename, string Message)> Failed)> EnqueueAsync(string username, IEnumerable<(string Filename, long Size)> files, Guid? batchId = null, CancellationToken cancellationToken = default)
+        public async Task<(List<Transfer> Enqueued, List<(string Filename, string Message)> Failed)> EnqueueAsync(string username, IEnumerable<(string Filename, long Size)> files, Guid? batchId = null, TransferLineage lineage = null, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(username))
             {
@@ -485,6 +487,9 @@ namespace slskd.Transfers.Downloads
                             Size = file.Size,
                             RequestedAt = DateTime.UtcNow,
                             State = TransferStates.Queued | TransferStates.Locally,
+                            ReplacesId = lineage?.ReplacesId,
+                            ReplacementAttempts = lineage?.ReplacementAttempts ?? 0,
+                            AttemptedUsernames = lineage?.AttemptedUsernames,
                         };
 
                         context.Add(transfer);

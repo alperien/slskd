@@ -62,6 +62,7 @@ public class Migrator
             { nameof(Z2026_02_17_TransferAttemptsAndBatchIdMigration), new Z2026_02_17_TransferAttemptsAndBatchIdMigration(connectionStrings: Databases) },
             { nameof(Z2026_04_30_DropTransferStartOffsetMigration), new Z2026_04_30_DropTransferStartOffsetMigration(connectionStrings: Databases) },
             { nameof(Z2026_05_06_AddBatchesTableMigration), new Z2026_05_06_AddBatchesTableMigration(connectionStrings: Databases) },
+            { nameof(Z2026_06_29_TransferAutoReplaceMigration), new Z2026_06_29_TransferAutoReplaceMigration(connectionStrings: Databases) },
         };
     }
 

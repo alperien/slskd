@@ -367,6 +367,42 @@ transfers:
       max_delay: 60000 # maximum time between retries, in milliseconds
 ```
 
+## Auto-Replace
+
+Soulseek's biggest pain point is downloads that fail or stall because the source peer goes offline, runs out of upload slots, or simply stops sending data.  Standard retry behavior only ever retries the *same* user, so a dead source stays dead.
+
+Auto-replace fixes this by treating a download as *dead* when it either fails after exhausting same-source retries (`on_failure`) or stops making progress (`on_stall`).  When that happens, slskd searches the network for the same file offered by a *different* user, picks the healthiest alternate source, and transparently re-enqueues the download from it.  This repeats across alternate sources until the file completes or the candidate budget (`max_candidates`) is exhausted.  Already-tried users are never re-selected, which prevents replacement loops.
+
+Candidate matching is strict by default: a candidate must have the same file name and, within `size_tolerance_bytes`, the same size as the original (`require_exact_size`), since a size mismatch is the strongest signal that a result is a different file.  Among valid candidates, slskd prefers sources advertising a free upload slot, then higher upload speed, then a shorter queue.
+
+A stall is detected when an in-progress download's transferred byte count does not change for `stall_timeout` milliseconds, or when a remotely-queued download's place in queue does not advance for `queue_stall_timeout` milliseconds.
+
+Auto-replace is **enabled by default**.  Set `enabled: false` to disable it entirely, or toggle `on_failure`/`on_stall` to control which triggers are active.
+
+#### **YAML**
+```yaml
+transfers:
+  download:
+    auto_replace:
+      enabled: true
+      on_failure: true
+      on_stall: true
+      max_candidates: 5
+      stall_timeout: 60000 # milliseconds
+      queue_stall_timeout: 1800000 # milliseconds
+      max_age: 3600000 # ignore failures older than this, in milliseconds
+      search_cooldown: 60000 # milliseconds
+      match:
+        require_exact_size: true
+        size_tolerance_bytes: 0
+        require_same_extension: true
+        require_free_upload_slot: false
+        minimum_upload_speed: 0 # bytes per second
+      search:
+        timeout: 10000 # milliseconds
+        response_limit: 50
+```
+
 ## Destination
 
 ### Permissions
