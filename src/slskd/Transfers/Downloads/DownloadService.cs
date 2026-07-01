@@ -1232,8 +1232,6 @@ namespace slskd.Transfers.Downloads
                                 transfer.State = TransferStates.Queued | TransferStates.Locally;
                             }
 
-                            transfer = transfer.WithSoulseekTransfer(args.Transfer);
-
                             Telemetry.Metrics.Update(() =>
                             {
                                 if (!TransferStateCategories.Queued.Contains(args.PreviousState) && TransferStateCategories.Queued.Contains(transfer.State))
@@ -1554,9 +1552,6 @@ namespace slskd.Transfers.Downloads
 
                 TryFail(transfer.Id, exception: ex);
 
-                // todo: broadcast
-                SynchronizedUpdate(transfer, semaphore: updateSyncRoot, cancellationToken: CancellationToken.None);
-
                 Telemetry.Metrics.Update(() =>
                 {
                     Telemetry.Metrics.Transfers.Downloads.Completed.Failed.Inc(1);
@@ -1569,9 +1564,6 @@ namespace slskd.Transfers.Downloads
                 Log.Error(ex, "Download of {Filename} from user {Username} failed: {Message}", transfer.Filename, transfer.Username, ex.Message);
 
                 TryFail(transfer.Id, exception: ex);
-
-                // todo: broadcast
-                SynchronizedUpdate(transfer, semaphore: updateSyncRoot, cancellationToken: CancellationToken.None);
 
                 Telemetry.Metrics.Update(() =>
                 {
