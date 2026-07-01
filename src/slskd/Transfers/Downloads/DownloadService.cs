@@ -589,6 +589,7 @@ namespace slskd.Transfers.Downloads
                                 {
                                     if (task.IsCompletedSuccessfully)
                                     {
+                                        enqueuedTcs.TrySetResult(task.Result);
                                         Log.Information("Task for download of {Filename} from {Username} completed successfully", transfer.Filename, transfer.Username);
                                         return;
                                     }
@@ -597,6 +598,7 @@ namespace slskd.Transfers.Downloads
                                     ex = ex?.InnerException ?? ex ?? new Exception("Unknown error");
 
                                     Log.Error(ex, "Task for download of {Filename} from {Username} did not complete successfully: {Error}", file.Filename, username, ex.Message);
+                                    enqueuedTcs.TrySetException(ex);
 
                                     if (!TryFail(transferId, exception: ex))
                                     {
