@@ -426,7 +426,15 @@ namespace slskd.Files
 
             try
             {
-                return new FileStream(filename, streamOptions);
+                var stream = new FileStream(filename, streamOptions);
+
+                if (!OperatingSystem.IsWindows() && unixCreateMode.HasValue)
+                {
+                    File.SetUnixFileMode(filename, unixCreateMode.Value);
+                    Log.Debug("Successfully set Unix file mode to {Mode}", unixCreateMode);
+                }
+
+                return stream;
             }
             catch (Exception ex)
             {
