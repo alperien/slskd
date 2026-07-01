@@ -2007,6 +2007,16 @@ namespace slskd
                     public int Connect { get; init; } = 10000;
 
                     /// <summary>
+                    ///     Gets the message response timeout value, in milliseconds.
+                    /// </summary>
+                    [Argument(default, "slsk-message-timeout")]
+                    [EnvironmentVariable("SLSK_MESSAGE_TIMEOUT")]
+                    [Description("message response timeout, in milliseconds")]
+                    [RequiresRestart]
+                    [Range(1000, int.MaxValue)]
+                    public int Message { get; init; } = 10000;
+
+                    /// <summary>
                     ///     Gets the connection inactivity timeout, in milliseconds.
                     /// </summary>
                     [Argument(default, "slsk-inactivity-timeout")]

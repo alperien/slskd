@@ -247,6 +247,7 @@
 #   connection:
 #     timeout:
 #       connect: 10000
+#       message: 10000
 #       inactivity: 15000
 #       transfer: 30000
 #     buffer:

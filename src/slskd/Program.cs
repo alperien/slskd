@@ -713,6 +713,7 @@ namespace slskd
                         maximumConcurrentUploads: OptionsAtStartup.Transfers.Upload.Slots,
                         maximumConcurrentDownloads: OptionsAtStartup.Transfers.Download.Slots,
                         minimumDiagnosticLevel: OptionsAtStartup.Soulseek.DiagnosticLevel.ToEnum<Soulseek.Diagnostics.DiagnosticLevel>(),
+                        messageTimeout: OptionsAtStartup.Soulseek.Connection.Timeout.Message,
                         maximumConcurrentSearches: 2,
                         raiseEventsAsynchronously: true)));
 

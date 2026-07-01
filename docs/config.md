@@ -795,6 +795,8 @@ Timeout options control how long the application waits for connections to connec
 
 Higher connect timeout values will help ensure that operations (browse, download requests, etc.) are successful the first time but decrease the responsiveness of commands that will ultimately fail.
 
+Message timeouts control how long the application waits for Soulseek server or peer message responses, including user endpoint lookups used before browse and download operations. Raising this can help on slow or congested connections, but failed requests will take longer to return.
+
 Inactivity timeouts help the application determine when a distributed parent connection has stopped sending data and when connections that have delivered search results (and are unlikely to be used further) from remaining open longer than needed. Reducing this timeout can help low spec systems if port exhaustion is a concern but may result in the application "hunting" for a distributed parent connection needlessly.
 
 Transfer connections use their own timeout value; other Soulseek clients regulate transfer speed by controlling how often data is sent (e.g. send full speed for 5 seconds, send nothing for 25 seconds),
@@ -803,6 +805,7 @@ and as such transfers can easily time out due to inactivity if using a lower val
 | Command-Line                | Environment Variable            | Description                                      |
 | --------------------------- | ------------------------------- | ------------------------------------------------ |
 | `--slsk-connection-timeout` | `SLSKD_SLSK_CONNECTION_TIMEOUT` | The connection timeout value, in milliseconds    |
+| `--slsk-message-timeout`    | `SLSKD_SLSK_MESSAGE_TIMEOUT`    | The message response timeout value, in milliseconds |
 | `--slsk-inactivity-timeout` | `SLSKD_SLSK_INACTIVITY_TIMEOUT` | The connection inactivity value, in milliseconds |
 | `--slsk-transfer-timeout`   | `SLSKD_SLSK_TRANSFER_TIMEOUT`   | The transfer connection timeout value, in milliseconds |
 
@@ -812,6 +815,7 @@ soulseek:
   connection:
     timeout:
       connect: 10000
+      message: 10000
       inactivity: 15000
       transfer: 30000
 ```
