@@ -423,7 +423,7 @@ namespace slskd.Transfers.Downloads
                     concurrentEnqueueRequests = fileList.Count;
                 }
 
-                var maxTimeToWaitForEnqueueRequestAck = TimeSpan.FromMinutes(3);
+                var maxTimeToWaitForDownloadSubmission = TimeSpan.FromMinutes(3);
                 var enqueueSemaphore = new SemaphoreSlim(initialCount: concurrentEnqueueRequests, maxCount: concurrentEnqueueRequests);
 
                 /*
@@ -504,22 +504,17 @@ namespace slskd.Transfers.Downloads
                         }
 
                         /*
-                            create a TaskCompletionSource that we can await for one of the following:
-
-                            1. the transfer enters the Queued | Remotely state
-                            2. the transfer enters a state containing Completed
-                            3. the linked CancellationTokenSource we add to CancellationTokens is cancelled
-                            4. the 'max wait time' CancellationTokenSource is cancelled
-
-                            add this to the dictionary before inserting the record, so we are guaranteed to have it
-                            in the right place once the transfer hits the UI
+                            create a TaskCompletionSource that tracks when the download has been submitted to the
+                            Soulseek client. this is intentionally earlier than any remote queued/in-progress state,
+                            because folder downloads should not block every subsequent file behind the first user's
+                            remote state callback.
                         */
-                        var enqueuedTcs = new TaskCompletionSource<Transfer>();
+                        var submittedTcs = new TaskCompletionSource<Transfer>(TaskCreationOptions.RunContinuationsAsynchronously);
 
                         // satisfies condition #3; CancellationTokenSource set cancelled by the user (via API call)
                         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                         CancellationTokens.TryAdd(transfer.Id, cts);
-                        cts.Token.Register(() => enqueuedTcs.TrySetCanceled());
+                        cts.Token.Register(() => submittedTcs.TrySetCanceled());
 
                         /*
                             DANGER ZONE! this record is in the database now; we're on the hook for making sure it ends up
@@ -546,50 +541,33 @@ namespace slskd.Transfers.Downloads
                             {
                                 Log.Debug("Acquired download enqueue semaphore for {Filename} from {Username}", transfer.Filename, transfer.Username);
 
-                                List<string> transitions = [];
                                 TransferStates state = TransferStates.None;
 
-                                // satisfies condition #4; remote user doesn't respond after a really long time
-                                using var timeoutCts = new CancellationTokenSource(maxTimeToWaitForEnqueueRequestAck);
+                                // guard against unexpected failures before DownloadAsync submits to Soulseek.
+                                using var timeoutCts = new CancellationTokenSource(maxTimeToWaitForDownloadSubmission);
                                 timeoutCts.Token.Register(() =>
                                 {
-                                    Log.Warning("Download of {Filename} from {Username} failed to enqueue remotely after hard time limit of {Duration} seconds. State transition history: {History}", transfer.Filename, username, maxTimeToWaitForEnqueueRequestAck.TotalSeconds, string.Join(", ", transitions));
-                                    enqueuedTcs.TrySetException(new TimeoutException($"Download failed to enqueue remotely after hard time limit of {maxTimeToWaitForEnqueueRequestAck.TotalSeconds} secs"));
+                                    Log.Warning("Download of {Filename} from {Username} was not submitted after hard time limit of {Duration} seconds", transfer.Filename, username, maxTimeToWaitForDownloadSubmission.TotalSeconds);
+                                    submittedTcs.TrySetException(new TimeoutException($"Download was not submitted after hard time limit of {maxTimeToWaitForDownloadSubmission.TotalSeconds} secs"));
                                 });
 
-                                // satisfies conditions #1 and #2
                                 void stateChanged(Transfer transfer)
                                 {
                                     state = transfer.State;
-                                    transitions.Add(transfer.State.ToString());
+                                }
 
-                                    if (transfer.State.HasFlag(TransferStates.Queued) && transfer.State.HasFlag(TransferStates.Remotely))
-                                    {
-                                        // satisfies condition #1; transfer is now remotely queued
-                                        enqueuedTcs.TrySetResult(transfer);
-                                    }
-
-                                    // satisfies condition #2; transfer advanced to a terminal state before being enqueued remotely (probably failed)
-                                    if (transfer.State.HasFlag(TransferStates.Completed))
-                                    {
-                                        if (transfer.State.HasFlag(TransferStates.Succeeded))
-                                        {
-                                            enqueuedTcs.TrySetResult(transfer);
-                                        }
-                                        else
-                                        {
-                                            enqueuedTcs.TrySetException(new TransferException(transfer.Exception));
-                                        }
-                                    }
+                                void downloadSubmitted(Transfer transfer)
+                                {
+                                    submittedTcs.TrySetResult(transfer);
                                 }
 
                                 Log.Debug("Scheduling Task for download of {Filename} from {Username}", transfer.Filename, transfer.Username);
 
-                                var downloadTask = Task.Run(() => DownloadAsync(transfer, stateChanged, cancellationToken: cts.Token)).ContinueWith(task =>
+                                var downloadTask = Task.Run(() => DownloadAsync(transfer, stateChanged, downloadSubmitted, cancellationToken: cts.Token)).ContinueWith(task =>
                                 {
                                     if (task.IsCompletedSuccessfully)
                                     {
-                                        enqueuedTcs.TrySetResult(task.Result);
+                                        submittedTcs.TrySetResult(task.Result);
                                         Log.Information("Task for download of {Filename} from {Username} completed successfully", transfer.Filename, transfer.Username);
                                         return;
                                     }
@@ -598,7 +576,7 @@ namespace slskd.Transfers.Downloads
                                     ex = ex?.InnerException ?? ex ?? new Exception("Unknown error");
 
                                     Log.Error(ex, "Task for download of {Filename} from {Username} did not complete successfully: {Error}", file.Filename, username, ex.Message);
-                                    enqueuedTcs.TrySetException(ex);
+                                    submittedTcs.TrySetException(ex);
 
                                     if (!TryFail(transferId, exception: ex))
                                     {
@@ -608,19 +586,10 @@ namespace slskd.Transfers.Downloads
 
                                 Log.Debug("Download Task status for {Filename} from {Username}: {Status}", file.Filename, username, downloadTask.Status);
 
-                                Log.Debug("Waiting for download of {Filename} from {Username} to transition into {State}", transfer.Filename, transfer.Username, TransferStates.Queued | TransferStates.Remotely);
+                                Log.Debug("Waiting for download of {Filename} from {Username} to be submitted", transfer.Filename, transfer.Username);
+                                await submittedTcs.Task;
 
-                                /*
-                                    wait for one of the four conditions to be true:
-
-                                    1. the transfer enters the Queued | Remotely state
-                                    2. the transfer enters a state containing Completed
-                                    3. the linked CancellationTokenSource we add to CancellationTokens is cancelled
-                                    4. the 'max wait time' CancellationTokenSource is cancelled
-                                */
-                                await enqueuedTcs.Task;
-
-                                Log.Debug("Download of {Filename} from {Username} successfully entered state {State}", transfer.Filename, transfer.Username, state);
+                                Log.Debug("Download of {Filename} from {Username} successfully submitted; current state is {State}", transfer.Filename, transfer.Username, state);
                             }
                             catch (Exception ex)
                             {
@@ -1155,13 +1124,14 @@ namespace slskd.Transfers.Downloads
         /// </summary>
         /// <param name="transfer">The Transfer to download.</param>
         /// <param name="stateChanged">An optional delegate to invoke the transfer state changes.</param>
+        /// <param name="downloadSubmitted">A callback invoked after the transfer has been submitted to the Soulseek client.</param>
         /// <param name="cancellationToken">The token to monitor for cancellation.</param>
         /// <returns>The operation context.</returns>
         /// <exception cref="ArgumentNullException">Thrown if the specified Transfer is null.</exception>
         /// <exception cref="TransferNotFoundException">Thrown if the specified Transfer ID can't be found in the database.</exception>
         /// <exception cref="InvalidOperationException">Thrown if the specified Transfer is not in the Queued | Locally state.</exception>
         /// <exception cref="DuplicateTransferException">Thrown if a download matching the username and filename is already tracked by Soulseek.NET.</exception>
-        private async Task<Transfer> DownloadAsync(Transfer transfer, Action<Transfer> stateChanged = null, CancellationToken cancellationToken = default)
+        private async Task<Transfer> DownloadAsync(Transfer transfer, Action<Transfer> stateChanged = null, Action<Transfer> downloadSubmitted = null, CancellationToken cancellationToken = default)
         {
             if (transfer is null)
             {
@@ -1355,6 +1325,8 @@ namespace slskd.Transfers.Downloads
                 transfer.Attempts = 1;
                 SynchronizedUpdate(transfer, semaphore: updateSyncRoot, cancellationToken: CancellationToken.None);
 
+                var submitted = false;
+
                 var completedTransfer = await Retry.Do(() =>
                     {
                         var incompleteFileInfo = Files.ResolveFileInfo(incompleteFilename);
@@ -1377,7 +1349,7 @@ namespace slskd.Transfers.Downloads
                             }
                         }
 
-                        return Client.DownloadAsync(
+                        var clientDownloadTask = Client.DownloadAsync(
                             username: transfer.Username,
                             remoteFilename: transfer.Filename,
                             outputStreamFactory: () => Task.FromResult(
@@ -1395,6 +1367,14 @@ namespace slskd.Transfers.Downloads
                             token: null,
                             cancellationToken: cancellationToken,
                             options: topts);
+
+                        if (!submitted)
+                        {
+                            submitted = true;
+                            downloadSubmitted?.Invoke(transfer);
+                        }
+
+                        return clientDownloadTask;
                     },
                     isRetryable: (attempts, ex) =>
                         ex is not OperationCanceledException
