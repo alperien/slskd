@@ -105,11 +105,13 @@ namespace slskd.Transfers
                 .HasIndex(t => t.Removed)
                 .HasDatabaseName("IDX_Transfers_Removed");
 
-            modelBuilder
-                .Entity<Transfer>()
-                .Property(e => e.Attempts)
-                .HasDefaultValue(0); // force EF to match the migration
-
+            // Attempts is intentionally NOT configured with HasDefaultValue here.
+            // HasDefaultValue marks the column as store-generated, which causes EF to
+            // omit it from INSERTs when the value equals the CLR default (0). Older
+            // databases whose Transfers.Attempts column was created without a
+            // "DEFAULT 0" clause then violate the NOT NULL constraint on enqueue.
+            // Letting EF always write the property's value keeps inserts valid on
+            // fresh, migrated, and pre-existing databases alike.
             modelBuilder
                 .Entity<Transfer>()
                 .HasIndex(t => t.BatchId)
