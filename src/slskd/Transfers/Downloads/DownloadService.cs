@@ -1201,7 +1201,7 @@ namespace slskd.Transfers.Downloads
                                 && !args.Transfer.State.HasFlag(TransferStates.Succeeded)
                                 && transfer.Attempts < retryOptions.Attempts)
                             {
-                                transfer.State = TransferStates.Queued | TransferStates.Locally;
+                                MarkRetryPending(transfer);
                             }
 
                             Telemetry.Metrics.Update(() =>
@@ -1406,10 +1406,10 @@ namespace slskd.Transfers.Downloads
                         Log.Debug("Previous attempt to download {Filename} from user {Username} completed with states: {@States}", FileSafety.GetFileNameSafely(transfer.Filename), transfer.Username, stateHistory);
                         stateHistory = [];
 
-                        Log.Information("Waiting about {Delay} second(s) to retry attempt #{Attempt} to download {Filename} from user {Username} in {Delay}ms", (int)Math.Ceiling((double)delay / 1000), attempts, transfer.Filename, transfer.Username);
+                        Log.Information("Waiting about {DelaySeconds} second(s) to retry attempt #{Attempt} to download {Filename} from user {Username} in {DelayMilliseconds}ms", (int)Math.Ceiling((double)delay / 1000), attempts, transfer.Filename, transfer.Username, delay);
 
                         transfer.Attempts = attempts;
-                        transfer.State = TransferStates.Queued | TransferStates.Locally;
+                        MarkRetryPending(transfer, DateTime.UtcNow.AddMilliseconds(delay));
                         SynchronizedUpdate(transfer, updateSyncRoot);
                     },
                     onFailure: (attempts, ex) =>
@@ -1585,6 +1585,14 @@ namespace slskd.Transfers.Downloads
                     storedCancellationTokenSource?.Dispose();
                 }
             }
+        }
+
+        private void MarkRetryPending(Transfer transfer, DateTime? nextAttemptAt = null)
+        {
+            transfer.State = TransferStates.Queued | TransferStates.Locally;
+            transfer.EndedAt = null;
+            transfer.Exception = null;
+            transfer.NextAttemptAt = nextAttemptAt;
         }
 
         private void SynchronizedUpdate(Transfer transfer, SemaphoreSlim semaphore, CancellationToken cancellationToken = default)
