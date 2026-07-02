@@ -1,0 +1,154 @@
+// <copyright file="SchemaInspector.cs" company="JP Dillingham">
+//           ▄▄▄▄     ▄▄▄▄     ▄▄▄▄
+//     ▄▄▄▄▄▄█  █▄▄▄▄▄█  █▄▄▄▄▄█  █
+//     █__ --█  █__ --█    ◄█  -  █
+//     █▄▄▄▄▄█▄▄█▄▄▄▄▄█▄▄█▄▄█▄▄▄▄▄█
+//   ┍━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━ ━  ━┉   ┉     ┉
+//   │ Copyright (c) JP Dillingham.
+//   │
+//   │ This program is free software: you can redistribute it and/or modify
+//   │ it under the terms of the GNU Affero General Public License as published
+//   │ by the Free Software Foundation, version 3.
+//   │
+//   │ This program is distributed in the hope that it will be useful,
+//   │ but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   │ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//   │ GNU Affero General Public License for more details.
+//   │
+//   │ You should have received a copy of the GNU Affero General Public License
+//   │ along with this program.  If not, see https://www.gnu.org/licenses/.
+//   │
+//   │ This program is distributed with Additional Terms pursuant to Section 7
+//   │ of the AGPLv3.  See the LICENSE file in the root directory of this
+//   │ project for the complete terms and conditions.
+//   │
+//   │ https://slskd.org
+//   │
+//   ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ ╌ ╌╌╌╌ ╌
+//   │ SPDX-FileCopyrightText: JP Dillingham
+//   │ SPDX-License-Identifier: AGPL-3.0-only
+//   ╰───────────────────────────────────────────╶──── ─ ─── ─  ── ──┈  ┈
+// </copyright>
+
+namespace slskd;
+
+using System;
+using System.Collections.Generic;
+using Microsoft.Data.Sqlite;
+
+/// <summary>
+///     Assistive class for inspecting SQLite database schemas.
+/// </summary>
+public static class SchemaInspector
+{
+    /// <summary>
+    ///     Retrieves the schema information for the specified SQLite database.
+    /// </summary>
+    /// <param name="connectionString">The connection string for the database.</param>
+    /// <returns>The schema information.</returns>
+    /// <exception cref="SlskdException">Thrown if the database can't be accessed, or something else goes wrong.</exception>
+    public static Dictionary<string, IEnumerable<ColumnInfo>> GetDatabaseSchema(string connectionString)
+    {
+        try
+        {
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+
+            var dict = new Dictionary<string, IEnumerable<ColumnInfo>>();
+
+            using var tableCommand = new SqliteCommand("SELECT name FROM sqlite_master WHERE type='table';", connection);
+            using var tableReader = tableCommand.ExecuteReader();
+
+            while (tableReader.Read())
+            {
+                var table = tableReader.GetString(0);
+
+                var columns = new List<ColumnInfo>();
+
+                using var columnCommand = new SqliteCommand($"PRAGMA table_info({table});", connection);
+                using var cr = columnCommand.ExecuteReader();
+
+                while (cr.Read())
+                {
+                    columns.Add(new ColumnInfo(
+                        Cid: cr.GetInt64(cr.GetOrdinal("cid")),
+                        Name: cr.GetString(cr.GetOrdinal("name")),
+                        Type: cr.GetString(cr.GetOrdinal("type")),
+                        NotNull: cr.GetInt64(cr.GetOrdinal("notnull")) > 0,
+                        DefaultValue: cr["dflt_value"],
+                        PrimaryKey: cr.GetInt64(cr.GetOrdinal("pk")) > 0));
+                }
+
+                dict[table] = columns;
+            }
+
+            connection.Close();
+
+            return dict;
+        }
+        catch (Exception ex)
+        {
+            throw new SlskdException($"Failed to retrieve schema information for database '{connectionString}'. The database might be corrupt or in use by another application; if the problem persists the backing file may need to be deleted", ex);
+        }
+    }
+
+    /// <summary>
+    ///     Retrieves the index information for the specified SQLite database.
+    /// </summary>
+    /// <param name="connectionString">The connection string for the database.</param>
+    /// <returns>The index information.</returns>
+    /// <exception cref="SlskdException">Thrown if the database can't be accessed, or something else goes wrong.</exception>
+    public static Dictionary<string, IEnumerable<IndexInfo>> GetDatabaseIndexes(string connectionString)
+    {
+        try
+        {
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+
+            var dict = new Dictionary<string, IEnumerable<IndexInfo>>();
+
+            using var tableCommand = new SqliteCommand("SELECT name FROM sqlite_master WHERE type='table';", connection);
+            using var tableReader = tableCommand.ExecuteReader();
+
+            while (tableReader.Read())
+            {
+                var table = tableReader.GetString(0);
+
+                var indexes = new List<IndexInfo>();
+
+                using var command = new SqliteCommand($"PRAGMA index_list({table});", connection);
+                using var cr = command.ExecuteReader();
+
+                while (cr.Read())
+                {
+                    indexes.Add(new IndexInfo(
+                        Seq: cr.GetInt64(cr.GetOrdinal("seq")),
+                        Name: cr.GetString(cr.GetOrdinal("name")),
+                        Unique: cr.GetInt64(cr.GetOrdinal("unique")) > 0,
+                        Origin: cr.GetString(cr.GetOrdinal("origin")),
+                        Partial: cr.GetInt64(cr.GetOrdinal("partial")) > 0));
+                }
+
+                dict[table] = indexes;
+            }
+
+            connection.Close();
+
+            return dict;
+        }
+        catch (Exception ex)
+        {
+            throw new SlskdException($"Failed to retrieve index information for database '{connectionString}'. The database might be corrupt or in use by another application; if the problem persists the backing file may need to be deleted", ex);
+        }
+    }
+
+    /// <summary>
+    ///     Represents a SQLite database column.
+    /// </summary>
+    public record ColumnInfo(long Cid, string Name, string Type, bool NotNull, object DefaultValue, bool PrimaryKey);
+
+    /// <summary>
+    ///     Represents a SQLite database index.
+    /// </summary>
+    public record IndexInfo(long Seq, string Name, bool Unique, string Origin, bool Partial);
+}

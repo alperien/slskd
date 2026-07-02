@@ -1,0 +1,107 @@
+// <copyright file="Redactor.cs" company="JP Dillingham">
+//           ▄▄▄▄     ▄▄▄▄     ▄▄▄▄
+//     ▄▄▄▄▄▄█  █▄▄▄▄▄█  █▄▄▄▄▄█  █
+//     █__ --█  █__ --█    ◄█  -  █
+//     █▄▄▄▄▄█▄▄█▄▄▄▄▄█▄▄█▄▄█▄▄▄▄▄█
+//   ┍━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━ ━  ━┉   ┉     ┉
+//   │ Copyright (c) JP Dillingham.
+//   │
+//   │ This program is free software: you can redistribute it and/or modify
+//   │ it under the terms of the GNU Affero General Public License as published
+//   │ by the Free Software Foundation, version 3.
+//   │
+//   │ This program is distributed in the hope that it will be useful,
+//   │ but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   │ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//   │ GNU Affero General Public License for more details.
+//   │
+//   │ You should have received a copy of the GNU Affero General Public License
+//   │ along with this program.  If not, see https://www.gnu.org/licenses/.
+//   │
+//   │ This program is distributed with Additional Terms pursuant to Section 7
+//   │ of the AGPLv3.  See the LICENSE file in the root directory of this
+//   │ project for the complete terms and conditions.
+//   │
+//   │ https://slskd.org
+//   │
+//   ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ ╌ ╌╌╌╌ ╌
+//   │ SPDX-FileCopyrightText: JP Dillingham
+//   │ SPDX-License-Identifier: AGPL-3.0-only
+//   ╰───────────────────────────────────────────╶──── ─ ─── ─  ── ──┈  ┈
+// </copyright>
+
+namespace slskd
+{
+    using System;
+    using System.Collections;
+    using System.Linq;
+    using System.Reflection;
+
+    /// <summary>
+    ///     Redacts secrets within objects.
+    /// </summary>
+    public static class Redactor
+    {
+        /// <summary>
+        ///     Recursively scans the <paramref name="target"/> for properties marked with <see cref="SecretAttribute"/> and redacts the values by overwriting them.
+        /// </summary>
+        /// <remarks>
+        ///     Only works on properties of type <see cref="string"/>.
+        /// </remarks>
+        /// <param name="target">The object to redact.</param>
+        /// <param name="redactWith">The string with which to replace redacted values.</param>
+        public static void Redact(object target, string redactWith = "*****")
+        {
+            var type = target.GetType();
+
+            if (type.IsPrimitive || type.IsValueType || type == typeof(string) || type.IsAssignableTo(typeof(IEnumerable)))
+            {
+                return;
+            }
+
+            foreach (var prop in target.GetType().GetProperties())
+            {
+                var value = prop.GetValue(target);
+
+                if (value == null)
+                {
+                    continue;
+                }
+
+                if (prop.GetCustomAttributes().Any(attr => attr.GetType() == typeof(SecretAttribute)) && prop.PropertyType == typeof(string))
+                {
+                    prop.SetValue(target, redactWith);
+                }
+                else
+                {
+                    if (value.IsDictionary())
+                    {
+                        foreach (string key in ((IDictionary)value).Keys)
+                        {
+                            Redact(((IDictionary)value)[key]);
+                        }
+                    }
+                    else if (value.GetType().IsAssignableTo(typeof(IEnumerable)))
+                    {
+                        foreach (var element in (IEnumerable)value)
+                        {
+                            Redact(element);
+                        }
+                    }
+                    else
+                    {
+                        Redact(value);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Indicates that a property or field contains a secret, allowing it to be redacted.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public class SecretAttribute : Attribute
+    {
+    }
+}

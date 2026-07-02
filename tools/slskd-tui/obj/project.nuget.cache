@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "YgrDCphq8hs=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\milk\\Downloads\\slskd-master\\slskd-master\\tools\\slskd-tui\\slskd-tui.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\milk\\.nuget\\packages\\spectre.console\\0.57.1\\spectre.console.0.57.1.nupkg.sha512",
+    "C:\\Users\\milk\\.nuget\\packages\\spectre.console.ansi\\0.57.1\\spectre.console.ansi.0.57.1.nupkg.sha512"
+  ],
+  "logs": []
+}

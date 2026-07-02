@@ -1,0 +1,124 @@
+// ==PREPROCESSOR==
+// @name "track info v1.42"
+// @author "york"
+// @import "%fb2k_component_path%helpers.txt"
+// @import "%fb2k_component_path%samples\js\lodash.min.js"
+// @import "%fb2k_component_path%samples\js\common.js"
+// @import "%fb2k_component_path%samples\js\panel.js"
+// ==/PREPROCESSOR==
+
+var tfo = {
+    artist: fb.TitleFormat("%artist%"),
+    title: fb.TitleFormat("%title%"),
+    album: fb.TitleFormat("%album%"),
+    codec: fb.TitleFormat("%codec%"),
+    bits: fb.TitleFormat("$info(bitspersample)"),
+    rate: fb.TitleFormat("%samplerate%"),
+    bitrate: fb.TitleFormat("%bitrate%"),
+    chans: fb.TitleFormat("%channels%"),
+    date: fb.TitleFormat("%date%"),
+    genre: fb.TitleFormat("%genre%"),
+    trackno: fb.TitleFormat("$num(%tracknumber%,2)"),
+    total: fb.TitleFormat("%tracknumber%/%totaltracks%"),
+    duration: fb.TitleFormat("%length%"),
+    time_info: fb.TitleFormat("%playback_time%/%length%"),
+    bitrate_cur: fb.TitleFormat("%bitrate_dynamic%"),
+};
+
+var c = {
+    bg:  RGB(0, 0, 0),
+    fg:  RGB(180, 180, 180),
+    dim: RGB(100, 100, 100)
+};
+
+var f = {
+    m: CreateFontString('Consolas', 8),
+    b: CreateFontString('Consolas', 8, true),
+    t: CreateFontString('Consolas', 7)
+};
+
+var panel = new _panel();
+
+function cell(gr, t, fn, co, x, y, w, h, al) {
+    DrawColouredText(gr, t, fn, co, x, y, w, h,
+        al || DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+        DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_TRIMMING_GRANULARITY_CHARACTER);
+}
+
+function on_paint(gr) {
+    gr.Clear(c.bg);
+    var m = _scale(2), lh = _scale(12), y = m, hw;
+
+    if (fb.IsPlaying) {
+        var title = tfo.title.Eval();
+        var artist = tfo.artist.Eval();
+        var album = tfo.album.Eval();
+        var codec = tfo.codec.Eval();
+        var bits = tfo.bits.Eval();
+        var sr_raw = tfo.rate.Eval();
+        var br = tfo.bitrate.Eval();
+        var ch = tfo.chans.Eval();
+        var dur = tfo.duration.Eval();
+        var time = tfo.time_info.Eval();
+        var date = tfo.date.Eval();
+        var genre = tfo.genre.Eval();
+        var tn = tfo.trackno.Eval();
+        var ttl = tfo.total.Eval();
+        var bcur = tfo.bitrate_cur.Eval();
+
+        var sr_str = '';
+        if (sr_raw) {
+            var hz = parseInt(sr_raw, 10);
+            sr_str = hz >= 1000 ? (hz / 1000).toFixed(1) + 'kHz' : sr_raw + 'Hz';
+        }
+        var codec_str = codec;
+        if (bits) codec_str += '/' + bits + 'bit';
+
+        hw = Math.floor((panel.w - m * 2) / 2);
+
+        cell(gr, 'artist  ' + artist, f.m, c.fg, m, y, hw, lh);
+        cell(gr, 'title   ' + title, f.m, c.fg, m + hw, y, hw, lh);
+        y += lh;
+
+        album = album || '--';
+        cell(gr, 'album   ' + album, f.m, c.fg, m, y, hw, lh);
+        var right_str = (date || '----') + '  ' + (ttl || tn || '--');
+        if (genre) right_str += '  ' + genre;
+        cell(gr, 'info    ' + right_str, f.m, c.dim, m + hw, y, hw, lh);
+        y += lh;
+
+        cell(gr, '──────────────────────────────────────────────────────', f.t, c.dim, m, y, panel.w - m * 2, _scale(8));
+        y += _scale(8);
+
+        cell(gr, 'codec   ' + codec_str, f.m, c.fg, m, y, hw, lh);
+        cell(gr, 'sample  ' + sr_str, f.m, c.fg, m + hw, y, hw, lh);
+        y += lh;
+
+        cell(gr, 'bitrate ' + br + '(' + bcur + ')', f.m, c.fg, m, y, hw, lh);
+        cell(gr, 'ch      ' + ch, f.m, c.fg, m + hw, y, hw, lh);
+        y += lh;
+
+        cell(gr, 'time    ' + time, f.m, c.fg, m, y, hw, lh);
+        var status_str = fb.IsPaused ? 'paused' : 'playing  ^-^';
+        cell(gr, 'status  ' + status_str, f.m, c.fg, m + hw, y, hw, lh);
+        y += lh;
+
+        var sy = panel.h - lh - m;
+        cell(gr, '──────────────────────────────────────────────────────', f.t, c.dim, m, sy - _scale(2), panel.w - m * 2, _scale(6));
+        var bar_str = 'fb2k  |  ' + dur + '  |  ' + (genre || '') + '  |  ' + (ttl || tn || '');
+        cell(gr, bar_str, f.t, c.dim, m, sy, panel.w - m * 2, lh);
+
+    } else {
+        cell(gr, '--- no track ---', f.m, c.dim, 0, Math.floor(panel.h / 2) - lh, panel.w, lh, DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+}
+
+function on_playback_new_track()  { window.Repaint(); }
+function on_playback_edited()     { window.Repaint(); }
+function on_playback_time()       { window.Repaint(); }
+function on_playback_stop()       { window.Repaint(); }
+function on_playback_pause(state) { window.Repaint(); }
+function on_playback_starting()   { window.Repaint(); }
+function on_playback_ended()      { window.Repaint(); }
+function on_size()                { panel.size(); }
+function on_script_unload()       { }

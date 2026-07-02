@@ -1,0 +1,73 @@
+// <copyright file="Pbkdf2.cs" company="JP Dillingham">
+//           ▄▄▄▄     ▄▄▄▄     ▄▄▄▄
+//     ▄▄▄▄▄▄█  █▄▄▄▄▄█  █▄▄▄▄▄█  █
+//     █__ --█  █__ --█    ◄█  -  █
+//     █▄▄▄▄▄█▄▄█▄▄▄▄▄█▄▄█▄▄█▄▄▄▄▄█
+//   ┍━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━ ━  ━┉   ┉     ┉
+//   │ Copyright (c) JP Dillingham.
+//   │
+//   │ This program is free software: you can redistribute it and/or modify
+//   │ it under the terms of the GNU Affero General Public License as published
+//   │ by the Free Software Foundation, version 3.
+//   │
+//   │ This program is distributed in the hope that it will be useful,
+//   │ but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   │ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//   │ GNU Affero General Public License for more details.
+//   │
+//   │ You should have received a copy of the GNU Affero General Public License
+//   │ along with this program.  If not, see https://www.gnu.org/licenses/.
+//   │
+//   │ This program is distributed with Additional Terms pursuant to Section 7
+//   │ of the AGPLv3.  See the LICENSE file in the root directory of this
+//   │ project for the complete terms and conditions.
+//   │
+//   │ https://slskd.org
+//   │
+//   ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ ╌ ╌╌╌╌ ╌
+//   │ SPDX-FileCopyrightText: JP Dillingham
+//   │ SPDX-License-Identifier: AGPL-3.0-only
+//   ╰───────────────────────────────────────────╶──── ─ ─── ─  ── ──┈  ┈
+// </copyright>
+
+namespace slskd.Cryptography
+{
+    using System.Security.Cryptography;
+    using System.Text;
+    using Microsoft.AspNetCore.Cryptography.KeyDerivation;
+
+    /// <summary>
+    ///     PBKDF2/RFC 2898 utility methods.
+    /// </summary>
+    public static class Pbkdf2
+    {
+        /// <summary>
+        ///     Gets a 256 bit (32 byte) key derived from the specified <paramref name="password"/> using PBKDF2/RFC 2898.
+        /// </summary>
+        /// <param name="password">The password from which to derive the key.</param>
+        /// <returns>The derived key.</returns>
+        public static byte[] GetKey(string password)
+        {
+            byte[] salt = new byte[16];
+            int iterations = 1000;
+
+            using var rng = RandomNumberGenerator.Create();
+            rng.GetBytes(salt);
+            return KeyDerivation.Pbkdf2(password, salt, KeyDerivationPrf.HMACSHA256, iterations, 32);
+        }
+
+        /// <summary>
+        ///     Gets a variable <paramref name="length"/> key derived from the specified <paramref name="password"/> and <paramref name="salt"/> using PBKDF2/RFC 2898.
+        /// </summary>
+        /// <param name="password">The password from which to derive the key.</param>
+        /// <param name="salt">The value with which to salt the key.</param>
+        /// <param name="length">The desired length of the key, in bytes.</param>
+        /// <returns>The derived key.</returns>
+        public static byte[] GetKey(string password, string salt, int length)
+        {
+            int iterations = 1000;
+
+            return KeyDerivation.Pbkdf2(password, Encoding.UTF8.GetBytes(salt), KeyDerivationPrf.HMACSHA256, iterations, length);
+        }
+    }
+}

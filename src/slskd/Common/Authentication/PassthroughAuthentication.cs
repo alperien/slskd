@@ -1,0 +1,105 @@
+// <copyright file="PassthroughAuthentication.cs" company="JP Dillingham">
+//           ▄▄▄▄     ▄▄▄▄     ▄▄▄▄
+//     ▄▄▄▄▄▄█  █▄▄▄▄▄█  █▄▄▄▄▄█  █
+//     █__ --█  █__ --█    ◄█  -  █
+//     █▄▄▄▄▄█▄▄█▄▄▄▄▄█▄▄█▄▄█▄▄▄▄▄█
+//   ┍━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━ ━  ━┉   ┉     ┉
+//   │ Copyright (c) JP Dillingham.
+//   │
+//   │ This program is free software: you can redistribute it and/or modify
+//   │ it under the terms of the GNU Affero General Public License as published
+//   │ by the Free Software Foundation, version 3.
+//   │
+//   │ This program is distributed in the hope that it will be useful,
+//   │ but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   │ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//   │ GNU Affero General Public License for more details.
+//   │
+//   │ You should have received a copy of the GNU Affero General Public License
+//   │ along with this program.  If not, see https://www.gnu.org/licenses/.
+//   │
+//   │ This program is distributed with Additional Terms pursuant to Section 7
+//   │ of the AGPLv3.  See the LICENSE file in the root directory of this
+//   │ project for the complete terms and conditions.
+//   │
+//   │ https://slskd.org
+//   │
+//   ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ ╌ ╌╌╌╌ ╌
+//   │ SPDX-FileCopyrightText: JP Dillingham
+//   │ SPDX-License-Identifier: AGPL-3.0-only
+//   ╰───────────────────────────────────────────╶──── ─ ─── ─  ── ──┈  ┈
+// </copyright>
+
+namespace slskd.Authentication
+{
+    using System.Security.Principal;
+    using System.Text.Encodings.Web;
+    using System.Threading.Tasks;
+    using Microsoft.AspNetCore.Authentication;
+    using Microsoft.Extensions.Logging;
+    using Microsoft.Extensions.Options;
+
+    /// <summary>
+    ///     Passthrough authentication.
+    /// </summary>
+    public static class PassthroughAuthentication
+    {
+        /// <summary>
+        ///     Gets the Passthrough authentication scheme name.
+        /// </summary>
+        public static string AuthenticationScheme { get; } = "Passthrough";
+    }
+
+    /// <summary>
+    ///     Handles passthrough authentication.
+    /// </summary>
+    public class PassthroughAuthenticationHandler : AuthenticationHandler<PassthroughAuthenticationOptions>
+    {
+        /// <summary>
+        ///     Initializes a new instance of the <see cref="PassthroughAuthenticationHandler"/> class.
+        /// </summary>
+        /// <param name="optionsMonitor">An options monitor.</param>
+        /// <param name="logger">A logger factory.</param>
+        /// <param name="urlEncoder">A url encoder.</param>
+        public PassthroughAuthenticationHandler(IOptionsMonitor<PassthroughAuthenticationOptions> optionsMonitor, ILoggerFactory logger, UrlEncoder urlEncoder)
+            : base(optionsMonitor, logger, urlEncoder)
+        {
+        }
+
+        /// <summary>
+        ///     Authenticates using the configured <see cref="PassthroughAuthenticationOptions.Username"/> and <see cref="PassthroughAuthenticationOptions.Role"/>.
+        /// </summary>
+        /// <returns>A successful authentication result containing a default ticket.</returns>
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        {
+            var identity = new GenericIdentity(Options.Username);
+            var principal = new GenericPrincipal(identity, new[] { Options.Role.ToString() });
+            var ticket = new AuthenticationTicket(principal, new AuthenticationProperties(), PassthroughAuthentication.AuthenticationScheme);
+
+            return Task.FromResult(AuthenticateResult.Success(ticket));
+        }
+    }
+
+    /// <summary>
+    ///     Passthrough authentication options.
+    /// </summary>
+    public class PassthroughAuthenticationOptions : AuthenticationSchemeOptions
+    {
+        /// <summary>
+        ///     Initializes a new instance of the <see cref="PassthroughAuthenticationOptions"/> class.
+        /// </summary>
+        public PassthroughAuthenticationOptions()
+        {
+        }
+
+        /// <summary>
+        ///     Gets or sets the username for the passed-through authentication ticket.
+        /// </summary>
+        public string Username { get; set; } = "Anonymous";
+
+        /// <summary>
+        ///     Gets or sets the role for the passed-through authentication ticket.
+        /// </summary>
+        public Role Role { get; set; } = Role.Administrator;
+    }
+}
