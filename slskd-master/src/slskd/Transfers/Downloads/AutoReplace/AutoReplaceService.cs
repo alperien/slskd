@@ -130,6 +130,10 @@ public class AutoReplaceService : IAutoReplaceService
     private ISoulseekClient Client { get; }
     private IOptionsMonitor<slskd.Options> OptionsMonitor { get; }
     private StallDetector Detector { get; }
+    private UserFailureTracker FailureTracker => _failureTracker ??= new UserFailureTracker(
+        OptionsValue.MaxUserFailures,
+        TimeSpan.FromMinutes(OptionsValue.UserFailureWindowMinutes));
+    private UserFailureTracker _failureTracker;
     private ConcurrentDictionary<Guid, DateTime> LastAttempt { get; } = new();
     private ILogger Log { get; } = Serilog.Log.ForContext<AutoReplaceService>();
 
@@ -205,6 +209,11 @@ public class AutoReplaceService : IAutoReplaceService
     /// <inheritdoc/>
     public async Task<bool> TryReplaceAsync(Transfer transfer, AutoReplaceReason reason, CancellationToken cancellationToken = default)
     {
+        return await TryReplaceInternalAsync(transfer, reason, bypassCooldown: false, cancellationToken);
+    }
+
+    private async Task<bool> TryReplaceInternalAsync(Transfer transfer, AutoReplaceReason reason, bool bypassCooldown, CancellationToken cancellationToken)
+    {
         if (transfer is null)
         {
             return false;
@@ -236,7 +245,7 @@ public class AutoReplaceService : IAutoReplaceService
         }
 
         // respect the cooldown so we don't hammer the network for a file with no available source
-        if (LastAttempt.TryGetValue(transfer.Id, out var last) && (DateTime.UtcNow - last).TotalMilliseconds < options.SearchCooldown)
+        if (!bypassCooldown && LastAttempt.TryGetValue(transfer.Id, out var last) && (DateTime.UtcNow - last).TotalMilliseconds < options.SearchCooldown)
         {
             return false;
         }
@@ -265,74 +274,101 @@ public class AutoReplaceService : IAutoReplaceService
             options.MaxCandidates);
 
         var responses = await SearchAsync(transfer.Filename, options, cancellationToken);
+        var filteredResponses = responses.Where(r => !FailureTracker.IsUnreliable(r.Username)).ToList();
 
-        var candidate = AutoReplaceMatcher.SelectBest(
+        if (filteredResponses.Count != responses.Count())
+        {
+            Log.Debug("Auto-replace filtered {Count} response(s) from unreliable users", responses.Count() - filteredResponses.Count);
+        }
+
+        var candidates = AutoReplaceMatcher.SelectAll(
             originalFilename: transfer.Filename,
             originalSize: transfer.Size,
             originalBitRate: transfer.BitRate,
             originalBitDepth: transfer.BitDepth,
             originalLength: transfer.Length,
             originalSampleRate: transfer.SampleRate,
-            responses: responses,
+            responses: filteredResponses,
             excludedUsernames: attempted,
             options: options.Match);
 
-        if (candidate is null)
+        if (candidates.Count == 0)
         {
             Log.Information("Auto-replace found no suitable alternate source for {Filename}", transfer.Filename);
             return false;
         }
 
-        var lineage = new TransferLineage
+        var triedUsernames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var baseLineage = new TransferLineage
         {
             ReplacesId = transfer.Id,
             ReplacementAttempts = transfer.ReplacementAttempts + 1,
             AttemptedUsernames = FormatUsernames(attempted),
         };
 
-        var candidateMetadata = new Dictionary<string, TransferFileMetadata>
+        foreach (var candidate in candidates)
         {
-            [candidate.Filename] = new TransferFileMetadata
+            if (!triedUsernames.Add(candidate.Username))
             {
-                BitRate = candidate.BitRate,
-                BitDepth = candidate.BitDepth,
-                Length = candidate.Length,
-                SampleRate = candidate.SampleRate,
-            },
-        };
-
-        try
-        {
-            var (enqueued, failed) = await Downloads.EnqueueAsync(
-                username: candidate.Username,
-                files: [(candidate.Filename, candidate.Size)],
-                batchId: transfer.BatchId,
-                lineage: lineage,
-                metadata: candidateMetadata,
-                cancellationToken: cancellationToken);
-
-            if (enqueued.Count > 0)
-            {
-                Log.Information(
-                    "Auto-replace enqueued {Filename} from alternate source {Username} (replacing {OriginalId})",
-                    candidate.Filename,
-                    candidate.Username,
-                    transfer.Id);
-                return true;
+                continue;
             }
 
-            Log.Information(
-                "Auto-replace failed to enqueue {Filename} from {Username}: {Message}",
-                candidate.Filename,
-                candidate.Username,
-                failed.FirstOrDefault().Message ?? "unknown");
-            return false;
+            var candidateMetadata = new Dictionary<string, TransferFileMetadata>
+            {
+                [candidate.Filename] = new TransferFileMetadata
+                {
+                    BitRate = candidate.BitRate,
+                    BitDepth = candidate.BitDepth,
+                    Length = candidate.Length,
+                    SampleRate = candidate.SampleRate,
+                },
+            };
+
+            try
+            {
+                var (enqueued, failed) = await Downloads.EnqueueAsync(
+                    username: candidate.Username,
+                    files: [(candidate.Filename, candidate.Size)],
+                    batchId: transfer.BatchId,
+                    lineage: baseLineage,
+                    metadata: candidateMetadata,
+                    cancellationToken: cancellationToken);
+
+                if (enqueued.Count > 0)
+                {
+                    FailureTracker.RecordSuccess(candidate.Username);
+                    Log.Information(
+                        "Auto-replace enqueued {Filename} from alternate source {Username} (replacing {OriginalId})",
+                        candidate.Filename,
+                        candidate.Username,
+                        transfer.Id);
+
+                    // cascade: if this is the first attempt (not itself a cascade), try replacing
+                    // other failed batch siblings immediately, bypassing their cooldown
+                    if (!bypassCooldown && transfer.BatchId.HasValue)
+                    {
+                        await CascadeRetryAsync(transfer.BatchId.Value, transfer.Id, cancellationToken);
+                    }
+
+                    return true;
+                }
+
+                FailureTracker.RecordFailure(candidate.Username);
+                Log.Information(
+                    "Auto-replace failed to enqueue {Filename} from {Username}: {Message}",
+                    candidate.Filename,
+                    candidate.Username,
+                    failed.FirstOrDefault().Message ?? "unknown");
+            }
+            catch (Exception ex)
+            {
+                FailureTracker.RecordFailure(candidate.Username);
+                Log.Warning(ex, "Auto-replace failed to enqueue {Filename} from {Username}: {Message}", candidate.Filename, candidate.Username, ex.Message);
+            }
         }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "Auto-replace failed to enqueue {Filename} from {Username}: {Message}", candidate.Filename, candidate.Username, ex.Message);
-            return false;
-        }
+
+        Log.Information("Auto-replace exhausted {Count} candidate(s) for {Filename}", candidates.Count, transfer.Filename);
+        return false;
     }
 
     private async Task ScanForStallsAsync(slskd.Options.TransfersOptions.GlobalDownloadOptions.AutoReplaceOptions options, CancellationToken cancellationToken)
@@ -388,6 +424,38 @@ public class AutoReplaceService : IAutoReplaceService
             }
 
             await TryReplaceAsync(transfer, AutoReplaceReason.Failure, cancellationToken);
+        }
+    }
+
+    private async Task CascadeRetryAsync(Guid batchId, Guid excludeTransferId, CancellationToken cancellationToken)
+    {
+        var cutoff = DateTime.UtcNow.AddMilliseconds(-OptionsValue.MaxAge);
+
+        var batchSiblings = Downloads.List(t =>
+            t.Direction == TransferDirection.Download
+            && t.BatchId == batchId
+            && t.Id != excludeTransferId
+            && ReplaceableFailureStates.Contains(t.State)
+            && t.EndedAt != null
+            && t.EndedAt >= cutoff);
+
+        // exclude transfers that already have an active replacement enqueued
+        var alreadyReplaced = Downloads.List(t => t.ReplacesId != null)
+            .Select(t => t.ReplacesId.Value)
+            .ToHashSet();
+
+        foreach (var sibling in batchSiblings)
+        {
+            if (alreadyReplaced.Contains(sibling.Id))
+            {
+                continue;
+            }
+
+            Log.Information(
+                "Auto-replace cascade: attempting replacement of batch sibling {Filename} (reason: batch-mate completed)",
+                sibling.Filename);
+
+            await TryReplaceInternalAsync(sibling, AutoReplaceReason.Failure, bypassCooldown: true, cancellationToken);
         }
     }
 

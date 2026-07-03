@@ -373,7 +373,7 @@ Soulseek's biggest pain point is downloads that fail or stall because the source
 
 Auto-replace fixes this by treating a download as *dead* when it either fails after exhausting same-source retries (`on_failure`) or stops making progress (`on_stall`).  When that happens, slskd searches the network for the same file offered by a *different* user, picks the healthiest alternate source, and transparently re-enqueues the download from it.  This repeats across alternate sources until the file completes or the candidate budget (`max_candidates`) is exhausted.  Already-tried users are never re-selected, which prevents replacement loops.
 
-Candidate matching is strict by default: a candidate must have the same file name (or a similar one, governed by `min_token_similarity`) and, within `size_tolerance_bytes`, the same size as the original (`require_exact_size`), since a size mismatch is the strongest signal that a result is a different file.  Among valid candidates, slskd prefers sources advertising a free upload slot, then higher upload speed, then a shorter queue.
+Candidate matching is strict by default: a candidate must have the same file name (or a similar one, governed by `min_token_similarity`) and the same size as the original (`require_exact_size`), since a size mismatch is the strongest signal that a result is a different file.  A candidate passes the size check if it is within `size_tolerance_bytes` (absolute bytes) **or** `size_tolerance_percent` (percentage of original size, default 1%).  Set `size_tolerance_percent: 0` to use only the byte tolerance.  Among valid candidates, slskd prefers sources advertising a free upload slot, then higher upload speed, then a shorter queue.
 
 Basename matching uses Jaccard token similarity — filenames are split into alphanumeric tokens and compared.  `min_token_similarity` (default 0.3) controls how similar two basenames must be; set to 1.0 for exact-match-only behavior.  When the original download has audio metadata (bitrate, sample rate, etc.), candidates with matching metadata receive a scoring bonus and are preferred over metadata-less alternatives.
 
@@ -394,10 +394,16 @@ transfers:
       queue_stall_timeout: 1800000 # milliseconds
       max_age: 3600000 # ignore failures older than this, in milliseconds
       search_cooldown: 60000 # milliseconds
+      max_user_failures: 3 # enqueue failures before a user is skipped
+      user_failure_window_minutes: 30 # time window for user failure evaluation
       match:
         require_exact_size: true
         size_tolerance_bytes: 10240
+        size_tolerance_percent: 1.0
         require_same_extension: true
+        extension_groups: # unset = built-in defaults (lossless/lossy); empty list = strict match only
+          - [flac, wav, aiff, alac, ape, wv]
+          - [mp3, m4a, ogg, opus, aac, wma]
         min_token_similarity: 0.3
         require_free_upload_slot: false
         minimum_upload_speed: 0 # bytes per second

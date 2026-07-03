@@ -73,7 +73,7 @@ public class AutoReplaceMatcherTests
     [Fact]
     public void Rejects_Size_Mismatch_When_Exact_Match_Required()
     {
-        var options = new MatchOptions { MinTokenSimilarity = 1.0, SizeToleranceBytes = 0 };
+        var options = new MatchOptions { MinTokenSimilarity = 1.0, SizeToleranceBytes = 0, SizeTolerancePercent = 0 };
         var responses = new[] { Response("bob", [File("a\\Song.mp3", 101)]) };
 
         var result = AutoReplaceMatcher.SelectBest("user\\Song.mp3", 100, null, null, null, null, responses, null, options);
@@ -86,6 +86,29 @@ public class AutoReplaceMatcherTests
     {
         var options = new MatchOptions { MinTokenSimilarity = 1.0, SizeToleranceBytes = 5 };
         var responses = new[] { Response("bob", [File("a\\Song.mp3", 103)]) };
+
+        var result = AutoReplaceMatcher.SelectBest("user\\Song.mp3", 100, null, null, null, null, responses, null, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("bob", result.Username);
+    }
+
+    [Fact]
+    public void Rejects_Size_Mismatch_When_Both_Byte_And_Percent_Tolerance_Exceeded()
+    {
+        var options = new MatchOptions { MinTokenSimilarity = 1.0, SizeToleranceBytes = 10, SizeTolerancePercent = 1.0 };
+        var responses = new[] { Response("bob", [File("a\\Song.mp3", 200)]) };
+
+        var result = AutoReplaceMatcher.SelectBest("user\\Song.mp3", 100, null, null, null, null, responses, null, options);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void Accepts_Size_Within_Percent_Tolerance_When_Byte_Tolerance_Exceeded()
+    {
+        var options = new MatchOptions { MinTokenSimilarity = 1.0, SizeToleranceBytes = 10, SizeTolerancePercent = 5.0 };
+        var responses = new[] { Response("bob", [File("a\\Song.mp3", 104)]) };
 
         var result = AutoReplaceMatcher.SelectBest("user\\Song.mp3", 100, null, null, null, null, responses, null, options);
 
@@ -215,6 +238,51 @@ public class AutoReplaceMatcherTests
         var result = AutoReplaceMatcher.SelectBest("user\\Song.mp3", 100, null, null, null, null, responses, null, new MatchOptions { MinTokenSimilarity = 1.0 });
 
         Assert.Equal("alice", result.Username);
+    }
+
+    [Fact]
+    public void Rejects_Different_Extension_When_No_Groups_Configured()
+    {
+        var options = new MatchOptions { MinTokenSimilarity = 0.3, RequireSameExtension = true, ExtensionGroups = [] };
+        var responses = new[] { Response("bob", [File("a\\Song.wav", 100)]) };
+
+        var result = AutoReplaceMatcher.SelectBest("user\\Song.flac", 100, null, null, null, null, responses, null, options);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void Rejects_Different_Extension_When_Group_Mismatch()
+    {
+        var options = new MatchOptions { MinTokenSimilarity = 0.3, RequireSameExtension = true, ExtensionGroups = [["flac", "wav"], ["mp3"]] };
+        var responses = new[] { Response("bob", [File("a\\Song.mp3", 100)]) };
+
+        var result = AutoReplaceMatcher.SelectBest("user\\Song.flac", 100, null, null, null, null, responses, null, options);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void Accepts_Equivalent_Extension_By_Group()
+    {
+        var options = new MatchOptions { MinTokenSimilarity = 0.3, RequireSameExtension = true, ExtensionGroups = [["flac", "wav"], ["mp3"]] };
+        var responses = new[] { Response("bob", [File("a\\Song.wav", 100)]) };
+
+        var result = AutoReplaceMatcher.SelectBest("user\\Song.flac", 100, null, null, null, null, responses, null, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("bob", result.Username);
+    }
+
+    [Fact]
+    public void Accepts_Equivalent_Extension_By_Default_Group()
+    {
+        var responses = new[] { Response("bob", [File("a\\Song.wav", 100)]) };
+
+        var result = AutoReplaceMatcher.SelectBest("user\\Song.flac", 100, null, null, null, null, responses, null, new MatchOptions { MinTokenSimilarity = 0.3 });
+
+        Assert.NotNull(result);
+        Assert.Equal("bob", result.Username);
     }
 
     // --- Token Similarity Tests ---

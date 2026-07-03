@@ -87,6 +87,16 @@ public static class AutoReplaceMatcher
     private static readonly ILogger Log = Serilog.Log.ForContext(typeof(AutoReplaceMatcher));
 
     /// <summary>
+    ///     Built-in extension equivalence groups used when <see cref="Options.TransfersOptions.GlobalDownloadOptions.AutoReplaceOptions.MatchOptions.ExtensionGroups"/>
+    ///     is not configured.  Lossless formats are interchangeable with other lossless formats, and lossy with lossy.
+    /// </summary>
+    private static readonly List<List<string>> DefaultExtensionGroups =
+    [
+        ["flac", "wav", "aiff", "alac", "ape", "wv"],
+        ["mp3", "m4a", "ogg", "opus", "aac", "wma"],
+    ];
+
+    /// <summary>
     ///     Selects the best alternate source for the file identified by <paramref name="originalFilename"/> from the
     ///     supplied <paramref name="responses"/>, excluding any source whose username appears in
     ///     <paramref name="excludedUsernames"/>.
@@ -127,11 +137,11 @@ public static class AutoReplaceMatcher
         Log.Debug(
             "Auto-replace matching: target={Filename} basename={Basename} tokens=[{Tokens}] ext={Ext} size={Size} " +
             "metadata=(bitrate={Br},bitdepth={Bd},length={Len},samplerate={Sr}) " +
-            "excluded=[{Excluded}] minTokenSimilarity={Sim} requireExactSize={Res} sizeTolerance={Tol} requireSameExt={Rse}",
+            "excluded=[{Excluded}] minTokenSimilarity={Sim} requireExactSize={Res} sizeToleranceBytes={TolB} sizeTolerancePercent={TolP} requireSameExt={Rse}",
             originalFilename, targetBasename, string.Join(",", targetTokens), targetExtension, originalSize,
             originalBitRate, originalBitDepth, originalLength, originalSampleRate,
             string.Join(",", excluded), options.MinTokenSimilarity,
-            options.RequireExactSize, options.SizeToleranceBytes, options.RequireSameExtension);
+            options.RequireExactSize, options.SizeToleranceBytes, options.SizeTolerancePercent, options.RequireSameExtension);
 
         var scored = new List<(AutoReplaceCandidate Candidate, (double Meta, double Token, int Slot, int Speed, long Queue) Score)>();
 
@@ -162,16 +172,40 @@ public static class AutoReplaceMatcher
                     continue;
                 }
 
-                if (options.RequireSameExtension && !string.Equals(Extension(file.Filename), targetExtension, StringComparison.OrdinalIgnoreCase))
+                if (options.RequireSameExtension)
                 {
-                    Log.Debug("  Skipping file {File} from {User}: extension mismatch (expected={Exp}, got={Got})", file.Filename, response.Username, targetExtension, Extension(file.Filename));
-                    continue;
+                    var candidateExt = Extension(file.Filename);
+                    var sameExt = string.Equals(candidateExt, targetExtension, StringComparison.OrdinalIgnoreCase);
+
+                    if (!sameExt)
+                    {
+                        // check extension equivalence groups
+                        var groups = options.ExtensionGroups ?? DefaultExtensionGroups;
+                        sameExt = groups.Any(g => g.Contains(targetExtension, StringComparer.OrdinalIgnoreCase)
+                                                   && g.Contains(candidateExt, StringComparer.OrdinalIgnoreCase));
+                    }
+
+                    if (!sameExt)
+                    {
+                        Log.Debug("  Skipping file {File} from {User}: extension mismatch (expected={Exp}, got={Got})", file.Filename, response.Username, targetExtension, candidateExt);
+                        continue;
+                    }
                 }
 
-                if (options.RequireExactSize && Math.Abs(file.Size - originalSize) > options.SizeToleranceBytes)
+                if (options.RequireExactSize)
                 {
-                    Log.Debug("  Skipping file {File} from {User}: size mismatch (expected={Exp}, got={Got}, tolerance={Tol})", file.Filename, response.Username, originalSize, file.Size, options.SizeToleranceBytes);
-                    continue;
+                    var byteDiff = Math.Abs(file.Size - originalSize);
+                    var byteToleranceOk = byteDiff <= options.SizeToleranceBytes;
+                    var percentToleranceOk = options.SizeTolerancePercent > 0
+                        && originalSize > 0
+                        && ((double)byteDiff / originalSize * 100) <= options.SizeTolerancePercent;
+
+                    if (!byteToleranceOk && !percentToleranceOk)
+                    {
+                        Log.Debug("  Skipping file {File} from {User}: size mismatch (expected={Exp}, got={Got}, byteTol={Byt}, pctTol={Pct})",
+                            file.Filename, response.Username, originalSize, file.Size, options.SizeToleranceBytes, options.SizeTolerancePercent);
+                        continue;
+                    }
                 }
 
                 // compute token similarity
@@ -244,6 +278,152 @@ public static class AutoReplaceMatcher
             Log.Debug("  No matching candidates found");
             return null;
         }
+    }
+
+    /// <summary>
+    ///     Selects all suitable alternate sources for the file identified by <paramref name="originalFilename"/>,
+    ///     ranked by score.  Used by the fallback queue to try multiple candidates in order.
+    /// </summary>
+    /// <param name="originalFilename">The original remote filename (full remote path) being replaced.</param>
+    /// <param name="originalSize">The size of the original file, in bytes.</param>
+    /// <param name="originalBitRate">The original audio bitrate, if known.</param>
+    /// <param name="originalBitDepth">The original audio bit depth, if known.</param>
+    /// <param name="originalLength">The original track length in seconds, if known.</param>
+    /// <param name="originalSampleRate">The original audio sample rate, if known.</param>
+    /// <param name="responses">The search responses to consider.</param>
+    /// <param name="excludedUsernames">Usernames that must not be selected (already-tried or known-bad sources).</param>
+    /// <param name="options">The candidate matching options.</param>
+    /// <returns>A list of matching candidates sorted by score (best first).</returns>
+    public static List<AutoReplaceCandidate> SelectAll(
+        string originalFilename,
+        long originalSize,
+        int? originalBitRate,
+        int? originalBitDepth,
+        int? originalLength,
+        int? originalSampleRate,
+        IEnumerable<Response> responses,
+        IEnumerable<string> excludedUsernames,
+        Options.TransfersOptions.GlobalDownloadOptions.AutoReplaceOptions.MatchOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(originalFilename) || responses is null)
+        {
+            return [];
+        }
+
+        options ??= new Options.TransfersOptions.GlobalDownloadOptions.AutoReplaceOptions.MatchOptions();
+
+        var targetBasename = Basename(originalFilename);
+        var targetExtension = Extension(originalFilename);
+        var targetTokens = Tokenize(targetBasename);
+        var excluded = new HashSet<string>(excludedUsernames ?? [], StringComparer.OrdinalIgnoreCase);
+
+        var scored = new List<(AutoReplaceCandidate Candidate, (double Meta, double Token, int Slot, int Speed, long Queue) Score)>();
+
+        foreach (var response in responses)
+        {
+            if (response is null || string.IsNullOrWhiteSpace(response.Username) || excluded.Contains(response.Username))
+            {
+                continue;
+            }
+
+            if (options.RequireFreeUploadSlot && !response.HasFreeUploadSlot)
+            {
+                continue;
+            }
+
+            if (response.UploadSpeed < options.MinimumUploadSpeed)
+            {
+                continue;
+            }
+
+            foreach (var file in response.Files ?? Enumerable.Empty<File>())
+            {
+                if (file is null || file.IsLocked || string.IsNullOrWhiteSpace(file.Filename))
+                {
+                    continue;
+                }
+
+                if (options.RequireSameExtension)
+                {
+                    var candidateExt = Extension(file.Filename);
+                    var sameExt = string.Equals(candidateExt, targetExtension, StringComparison.OrdinalIgnoreCase);
+
+                    if (!sameExt)
+                    {
+                        var groups = options.ExtensionGroups ?? DefaultExtensionGroups;
+                        sameExt = groups.Any(g => g.Contains(targetExtension, StringComparer.OrdinalIgnoreCase)
+                                                   && g.Contains(candidateExt, StringComparer.OrdinalIgnoreCase));
+                    }
+
+                    if (!sameExt)
+                    {
+                        continue;
+                    }
+                }
+
+                if (options.RequireExactSize)
+                {
+                    var byteDiff = Math.Abs(file.Size - originalSize);
+                    var byteToleranceOk = byteDiff <= options.SizeToleranceBytes;
+                    var percentToleranceOk = options.SizeTolerancePercent > 0
+                        && originalSize > 0
+                        && ((double)byteDiff / originalSize * 100) <= options.SizeTolerancePercent;
+
+                    if (!byteToleranceOk && !percentToleranceOk)
+                    {
+                        continue;
+                    }
+                }
+
+                var candidateBasename = Basename(file.Filename);
+                var candidateTokens = Tokenize(candidateBasename);
+                var tokenSimilarity = JaccardSimilarity(targetTokens, candidateTokens);
+
+                if (tokenSimilarity < options.MinTokenSimilarity)
+                {
+                    continue;
+                }
+
+                var metadataScore = ComputeMetadataScore(
+                    originalLength, originalBitRate, originalBitDepth, originalSampleRate,
+                    file.Length, file.BitRate, file.BitDepth, file.SampleRate);
+
+                var candidate = new AutoReplaceCandidate
+                {
+                    Username = response.Username,
+                    Filename = file.Filename,
+                    Size = file.Size,
+                    BitRate = file.BitRate,
+                    BitDepth = file.BitDepth,
+                    Length = file.Length,
+                    SampleRate = file.SampleRate,
+                };
+
+                var score = (
+                    Meta: metadataScore,
+                    Token: tokenSimilarity,
+                    Slot: response.HasFreeUploadSlot ? 1 : 0,
+                    Speed: response.UploadSpeed,
+                    Queue: -response.QueueLength);
+
+                scored.Add((candidate, score));
+            }
+        }
+
+        if (scored.Count > 0)
+        {
+            return scored
+                .OrderByDescending(x => x.Score.Meta)
+                .ThenByDescending(x => x.Score.Token)
+                .ThenByDescending(x => x.Score.Slot)
+                .ThenByDescending(x => x.Score.Speed)
+                .ThenByDescending(x => x.Score.Queue)
+                .ThenBy(x => x.Candidate.Username, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.Candidate)
+                .ToList();
+        }
+
+        return [];
     }
 
     /// <summary>

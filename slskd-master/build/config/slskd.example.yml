@@ -92,10 +92,16 @@
 #       queue_stall_timeout: 1800000 # ms a remotely queued download may go without advancing before it is considered stalled
 #       max_age: 3600000 # ignore failures older than this (ms) to avoid reviving stale history
 #       search_cooldown: 60000 # ms to wait before searching again for a file with no available alternate source
+#       max_user_failures: 3 # max enqueue failures per user before they are considered unreliable and skipped
+#       user_failure_window_minutes: 30 # time window (minutes) for evaluating user failures before decay
 #       match:
 #         require_exact_size: true # a candidate's size must match the original (within size_tolerance_bytes)
 #         size_tolerance_bytes: 0 # allowed difference in bytes when require_exact_size is enabled
-#         require_same_extension: true # a candidate's extension must match the original
+#         size_tolerance_percent: 1.0 # allowed difference as a percentage of the original file size (0 to disable)
+#         require_same_extension: true # a candidate's extension must match the original (or be in the same extension_group)
+#         extension_groups: # extension equivalence groups (defaults: lossless group and lossy group); unset = use defaults, empty list = strict extension match only
+#           - [flac, wav, aiff, alac, ape, wv]
+#           - [mp3, m4a, ogg, opus, aac, wma]
 #         min_token_similarity: 0.3 # minimum Jaccard token similarity (0-1) for basename matching; 1.0 = exact match
 #         require_free_upload_slot: false # a candidate source must advertise a free upload slot
 #         minimum_upload_speed: 0 # minimum advertised upload speed, in bytes per second, for a candidate source

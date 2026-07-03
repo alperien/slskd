@@ -1086,6 +1086,21 @@ namespace slskd
                     public int SearchCooldown { get; init; } = 60_000;
 
                     /// <summary>
+                    ///     Gets the maximum number of enqueue failures allowed per user within the
+                    ///     <see cref="UserFailureWindowMinutes"/> window before the user is considered
+                    ///     unreliable and skipped during future auto-replace attempts.
+                    /// </summary>
+                    [Range(1, 100)]
+                    public int MaxUserFailures { get; init; } = 3;
+
+                    /// <summary>
+                    ///     Gets the time window, in minutes, during which <see cref="MaxUserFailures"/>
+                    ///     is evaluated before failure records decay.
+                    /// </summary>
+                    [Range(1, 1440)]
+                    public int UserFailureWindowMinutes { get; init; } = 30;
+
+                    /// <summary>
                     ///     Gets candidate matching options.
                     /// </summary>
                     [Validate]
@@ -1116,9 +1131,27 @@ namespace slskd
                         public int SizeToleranceBytes { get; init; } = 10240;
 
                         /// <summary>
+                        ///     Gets the allowed size difference as a percentage of the original file size,
+                        ///     evaluated alongside <see cref="SizeToleranceBytes"/>. A candidate passes the size
+                        ///     check if it is within either the byte tolerance or this percentage tolerance.
+                        ///     Set to 0 to disable percentage-based tolerance.
+                        /// </summary>
+                        [Range(0.0, 100.0)]
+                        public double SizeTolerancePercent { get; init; } = 1.0;
+
+                        /// <summary>
                         ///     Gets a value indicating whether a candidate file's extension must match the original.
                         /// </summary>
                         public bool RequireSameExtension { get; init; } = true;
+
+                        /// <summary>
+                        ///     Gets the extension equivalence groups used when <see cref="RequireSameExtension"/> is
+                        ///     enabled.  A candidate whose extension differs from the original is still accepted if
+                        ///     both belong to the same group.  When <c>null</c>, the matcher uses built-in defaults
+                        ///     (lossless: flac, wav, aiff, alac, ape, wv; lossy: mp3, m4a, ogg, opus, aac, wma).
+                        ///     Set to an empty list to disable group matching (strict extension match only).
+                        /// </summary>
+                        public List<List<string>> ExtensionGroups { get; init; } = null;
 
                         /// <summary>
                         ///     Gets a value indicating whether a candidate source must advertise a free upload slot.
