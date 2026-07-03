@@ -299,12 +299,7 @@ public class AutoReplaceService : IAutoReplaceService
         }
 
         var triedUsernames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var baseLineage = new TransferLineage
-        {
-            ReplacesId = transfer.Id,
-            ReplacementAttempts = transfer.ReplacementAttempts + 1,
-            AttemptedUsernames = FormatUsernames(attempted),
-        };
+        const int AttemptNumber = 1; // always 1; MaxCandidates guards the outer call count
 
         foreach (var candidate in candidates)
         {
@@ -312,6 +307,15 @@ public class AutoReplaceService : IAutoReplaceService
             {
                 continue;
             }
+
+            // rebuild lineage with the latest set of attempted usernames,
+            // so failed candidates are persisted and skipped on the next round
+            var lineage = new TransferLineage
+            {
+                ReplacesId = transfer.Id,
+                ReplacementAttempts = transfer.ReplacementAttempts + AttemptNumber,
+                AttemptedUsernames = FormatUsernames(attempted),
+            };
 
             var candidateMetadata = new Dictionary<string, TransferFileMetadata>
             {
@@ -330,7 +334,7 @@ public class AutoReplaceService : IAutoReplaceService
                     username: candidate.Username,
                     files: [(candidate.Filename, candidate.Size)],
                     batchId: transfer.BatchId,
-                    lineage: baseLineage,
+                    lineage: lineage,
                     metadata: candidateMetadata,
                     cancellationToken: cancellationToken);
 
@@ -353,6 +357,7 @@ public class AutoReplaceService : IAutoReplaceService
                     return true;
                 }
 
+                attempted.Add(candidate.Username);
                 FailureTracker.RecordFailure(candidate.Username);
                 Log.Information(
                     "Auto-replace failed to enqueue {Filename} from {Username}: {Message}",
@@ -362,6 +367,7 @@ public class AutoReplaceService : IAutoReplaceService
             }
             catch (Exception ex)
             {
+                attempted.Add(candidate.Username);
                 FailureTracker.RecordFailure(candidate.Username);
                 Log.Warning(ex, "Auto-replace failed to enqueue {Filename} from {Username}: {Message}", candidate.Filename, candidate.Username, ex.Message);
             }
