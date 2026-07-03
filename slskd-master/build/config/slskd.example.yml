@@ -96,7 +96,7 @@
 #       user_failure_window_minutes: 30 # time window (minutes) for evaluating user failures before decay
 #       match:
 #         require_exact_size: true # a candidate's size must match the original (within size_tolerance_bytes)
-#         size_tolerance_bytes: 0 # allowed difference in bytes when require_exact_size is enabled
+#         size_tolerance_bytes: 10240 # allowed difference in bytes when require_exact_size is enabled
 #         size_tolerance_percent: 1.0 # allowed difference as a percentage of the original file size (0 to disable)
 #         require_same_extension: true # a candidate's extension must match the original (or be in the same extension_group)
 #         extension_groups: # extension equivalence groups (defaults: lossless group and lossy group); unset = use defaults, empty list = strict extension match only

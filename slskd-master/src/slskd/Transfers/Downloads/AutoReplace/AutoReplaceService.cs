@@ -347,7 +347,7 @@ public class AutoReplaceService : IAutoReplaceService
                     // other failed batch siblings immediately, bypassing their cooldown
                     if (!bypassCooldown && transfer.BatchId.HasValue)
                     {
-                        await CascadeRetryAsync(transfer.BatchId.Value, transfer.Id, cancellationToken);
+                        await CascadeRetryAsync(transfer.BatchId.Value, transfer.Id, reason, cancellationToken);
                     }
 
                     return true;
@@ -427,7 +427,7 @@ public class AutoReplaceService : IAutoReplaceService
         }
     }
 
-    private async Task CascadeRetryAsync(Guid batchId, Guid excludeTransferId, CancellationToken cancellationToken)
+    private async Task CascadeRetryAsync(Guid batchId, Guid excludeTransferId, AutoReplaceReason reason, CancellationToken cancellationToken)
     {
         var cutoff = DateTime.UtcNow.AddMilliseconds(-OptionsValue.MaxAge);
 
@@ -455,7 +455,7 @@ public class AutoReplaceService : IAutoReplaceService
                 "Auto-replace cascade: attempting replacement of batch sibling {Filename} (reason: batch-mate completed)",
                 sibling.Filename);
 
-            await TryReplaceInternalAsync(sibling, AutoReplaceReason.Failure, bypassCooldown: true, cancellationToken);
+            await TryReplaceInternalAsync(sibling, reason, bypassCooldown: true, cancellationToken);
         }
     }
 

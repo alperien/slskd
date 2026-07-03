@@ -122,9 +122,71 @@ public static class AutoReplaceMatcher
         IEnumerable<string> excludedUsernames,
         Options.TransfersOptions.GlobalDownloadOptions.AutoReplaceOptions.MatchOptions options)
     {
+        var ranked = ScoreAndRank(originalFilename, originalSize, originalBitRate, originalBitDepth, originalLength, originalSampleRate, responses, excludedUsernames, options, logRejections: true);
+
+        if (ranked.Count > 0)
+        {
+            var winner = ranked[0].Candidate;
+            for (var i = 0; i < ranked.Count; i++)
+            {
+                var (candidate, s) = ranked[i];
+                Log.Debug("  Rank #{Rank}: {User} - {File} (meta={Meta:0.000}, token={Token:0.000}, slot={Slot}, speed={Speed}, queue={Queue})",
+                    i + 1, candidate.Username, candidate.Filename, s.Meta, s.Token, s.Slot, s.Speed, -s.Queue);
+            }
+
+            Log.Debug("  Selected: {User} - {File}", winner.Username, winner.Filename);
+            return winner;
+        }
+
+        Log.Debug("  No matching candidates found");
+        return null;
+    }
+
+    /// <summary>
+    ///     Selects all suitable alternate sources for the file identified by <paramref name="originalFilename"/>,
+    ///     ranked by score.  Used by the fallback queue to try multiple candidates in order.
+    /// </summary>
+    /// <param name="originalFilename">The original remote filename (full remote path) being replaced.</param>
+    /// <param name="originalSize">The size of the original file, in bytes.</param>
+    /// <param name="originalBitRate">The original audio bitrate, if known.</param>
+    /// <param name="originalBitDepth">The original audio bit depth, if known.</param>
+    /// <param name="originalLength">The original track length in seconds, if known.</param>
+    /// <param name="originalSampleRate">The original audio sample rate, if known.</param>
+    /// <param name="responses">The search responses to consider.</param>
+    /// <param name="excludedUsernames">Usernames that must not be selected (already-tried or known-bad sources).</param>
+    /// <param name="options">The candidate matching options.</param>
+    /// <returns>A list of matching candidates sorted by score (best first).</returns>
+    public static List<AutoReplaceCandidate> SelectAll(
+        string originalFilename,
+        long originalSize,
+        int? originalBitRate,
+        int? originalBitDepth,
+        int? originalLength,
+        int? originalSampleRate,
+        IEnumerable<Response> responses,
+        IEnumerable<string> excludedUsernames,
+        Options.TransfersOptions.GlobalDownloadOptions.AutoReplaceOptions.MatchOptions options)
+    {
+        return ScoreAndRank(originalFilename, originalSize, originalBitRate, originalBitDepth, originalLength, originalSampleRate, responses, excludedUsernames, options, logRejections: false)
+            .Select(x => x.Candidate)
+            .ToList();
+    }
+
+    private static List<(AutoReplaceCandidate Candidate, (double Meta, double Token, int Slot, int Speed, long Queue) Score)> ScoreAndRank(
+        string originalFilename,
+        long originalSize,
+        int? originalBitRate,
+        int? originalBitDepth,
+        int? originalLength,
+        int? originalSampleRate,
+        IEnumerable<Response> responses,
+        IEnumerable<string> excludedUsernames,
+        Options.TransfersOptions.GlobalDownloadOptions.AutoReplaceOptions.MatchOptions options,
+        bool logRejections)
+    {
         if (string.IsNullOrWhiteSpace(originalFilename) || responses is null)
         {
-            return null;
+            return [];
         }
 
         options ??= new Options.TransfersOptions.GlobalDownloadOptions.AutoReplaceOptions.MatchOptions();
@@ -154,17 +216,16 @@ public static class AutoReplaceMatcher
 
             if (options.RequireFreeUploadSlot && !response.HasFreeUploadSlot)
             {
-                Log.Debug("  Skipping response from {User}: no free upload slot", response.Username);
+                if (logRejections) Log.Debug("  Skipping response from {User}: no free upload slot", response.Username);
                 continue;
             }
 
             if (response.UploadSpeed < options.MinimumUploadSpeed)
             {
-                Log.Debug("  Skipping response from {User}: upload speed {Speed} < min {Min}", response.Username, response.UploadSpeed, options.MinimumUploadSpeed);
+                if (logRejections) Log.Debug("  Skipping response from {User}: upload speed {Speed} < min {Min}", response.Username, response.UploadSpeed, options.MinimumUploadSpeed);
                 continue;
             }
 
-            // never select locked files; only consider the freely available ones
             foreach (var file in response.Files ?? Enumerable.Empty<File>())
             {
                 if (file is null || file.IsLocked || string.IsNullOrWhiteSpace(file.Filename))
@@ -179,7 +240,6 @@ public static class AutoReplaceMatcher
 
                     if (!sameExt)
                     {
-                        // check extension equivalence groups
                         var groups = options.ExtensionGroups ?? DefaultExtensionGroups;
                         sameExt = groups.Any(g => g.Contains(targetExtension, StringComparer.OrdinalIgnoreCase)
                                                    && g.Contains(candidateExt, StringComparer.OrdinalIgnoreCase));
@@ -187,7 +247,7 @@ public static class AutoReplaceMatcher
 
                     if (!sameExt)
                     {
-                        Log.Debug("  Skipping file {File} from {User}: extension mismatch (expected={Exp}, got={Got})", file.Filename, response.Username, targetExtension, candidateExt);
+                        if (logRejections) Log.Debug("  Skipping file {File} from {User}: extension mismatch (expected={Exp}, got={Got})", file.Filename, response.Username, targetExtension, candidateExt);
                         continue;
                     }
                 }
@@ -202,25 +262,23 @@ public static class AutoReplaceMatcher
 
                     if (!byteToleranceOk && !percentToleranceOk)
                     {
-                        Log.Debug("  Skipping file {File} from {User}: size mismatch (expected={Exp}, got={Got}, byteTol={Byt}, pctTol={Pct})",
+                        if (logRejections) Log.Debug("  Skipping file {File} from {User}: size mismatch (expected={Exp}, got={Got}, byteTol={Byt}, pctTol={Pct})",
                             file.Filename, response.Username, originalSize, file.Size, options.SizeToleranceBytes, options.SizeTolerancePercent);
                         continue;
                     }
                 }
 
-                // compute token similarity
                 var candidateBasename = Basename(file.Filename);
                 var candidateTokens = Tokenize(candidateBasename);
                 var tokenSimilarity = JaccardSimilarity(targetTokens, candidateTokens);
 
                 if (tokenSimilarity < options.MinTokenSimilarity)
                 {
-                    Log.Debug("  Skipping file {File} from {User}: token similarity too low ({Sim} < {Min}), target tokens=[{Target}], candidate tokens=[{Candidate}]",
+                    if (logRejections) Log.Debug("  Skipping file {File} from {User}: token similarity too low ({Sim} < {Min}), target tokens=[{Target}], candidate tokens=[{Candidate}]",
                         file.Filename, response.Username, tokenSimilarity, options.MinTokenSimilarity, string.Join(",", targetTokens), string.Join(",", candidateTokens));
                     continue;
                 }
 
-                // compute metadata bonus when original metadata is available
                 var metadataScore = ComputeMetadataScore(
                     originalLength, originalBitRate, originalBitDepth, originalSampleRate,
                     file.Length, file.BitRate, file.BitDepth, file.SampleRate);
@@ -236,7 +294,6 @@ public static class AutoReplaceMatcher
                     SampleRate = file.SampleRate,
                 };
 
-                // higher is better: prefer metadata match, then token similarity, then free slot, then speed, then shorter queue
                 var score = (
                     Meta: metadataScore,
                     Token: tokenSimilarity,
@@ -244,186 +301,26 @@ public static class AutoReplaceMatcher
                     Speed: response.UploadSpeed,
                     Queue: -response.QueueLength);
 
-                Log.Debug("  Accepted file {File} from {User}: tokenSim={Sim:0.000} metaScore={Meta:0.000} slot={Slot} speed={Speed} queue={Queue}",
+                if (logRejections) Log.Debug("  Accepted file {File} from {User}: tokenSim={Sim:0.000} metaScore={Meta:0.000} slot={Slot} speed={Speed} queue={Queue}",
                     file.Filename, response.Username, tokenSimilarity, metadataScore, score.Slot, score.Speed, response.QueueLength);
 
                 scored.Add((candidate, score));
             }
         }
 
-        if (scored.Count > 0)
-        {
-            var ranked = scored
-                .OrderByDescending(x => x.Score.Meta)
-                .ThenByDescending(x => x.Score.Token)
-                .ThenByDescending(x => x.Score.Slot)
-                .ThenByDescending(x => x.Score.Speed)
-                .ThenByDescending(x => x.Score.Queue)
-                .ThenBy(x => x.Candidate.Username, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            for (var i = 0; i < ranked.Count; i++)
-            {
-                var (candidate, s) = ranked[i];
-                Log.Debug("  Rank #{Rank}: {User} - {File} (meta={Meta:0.000}, token={Token:0.000}, slot={Slot}, speed={Speed}, queue={Queue})",
-                    i + 1, candidate.Username, candidate.Filename, s.Meta, s.Token, s.Slot, s.Speed, -s.Queue);
-            }
-
-            var winner = ranked[0].Candidate;
-            Log.Debug("  Selected: {User} - {File}", winner.Username, winner.Filename);
-            return winner;
-        }
-        else
-        {
-            Log.Debug("  No matching candidates found");
-            return null;
-        }
-    }
-
-    /// <summary>
-    ///     Selects all suitable alternate sources for the file identified by <paramref name="originalFilename"/>,
-    ///     ranked by score.  Used by the fallback queue to try multiple candidates in order.
-    /// </summary>
-    /// <param name="originalFilename">The original remote filename (full remote path) being replaced.</param>
-    /// <param name="originalSize">The size of the original file, in bytes.</param>
-    /// <param name="originalBitRate">The original audio bitrate, if known.</param>
-    /// <param name="originalBitDepth">The original audio bit depth, if known.</param>
-    /// <param name="originalLength">The original track length in seconds, if known.</param>
-    /// <param name="originalSampleRate">The original audio sample rate, if known.</param>
-    /// <param name="responses">The search responses to consider.</param>
-    /// <param name="excludedUsernames">Usernames that must not be selected (already-tried or known-bad sources).</param>
-    /// <param name="options">The candidate matching options.</param>
-    /// <returns>A list of matching candidates sorted by score (best first).</returns>
-    public static List<AutoReplaceCandidate> SelectAll(
-        string originalFilename,
-        long originalSize,
-        int? originalBitRate,
-        int? originalBitDepth,
-        int? originalLength,
-        int? originalSampleRate,
-        IEnumerable<Response> responses,
-        IEnumerable<string> excludedUsernames,
-        Options.TransfersOptions.GlobalDownloadOptions.AutoReplaceOptions.MatchOptions options)
-    {
-        if (string.IsNullOrWhiteSpace(originalFilename) || responses is null)
+        if (scored.Count == 0)
         {
             return [];
         }
 
-        options ??= new Options.TransfersOptions.GlobalDownloadOptions.AutoReplaceOptions.MatchOptions();
-
-        var targetBasename = Basename(originalFilename);
-        var targetExtension = Extension(originalFilename);
-        var targetTokens = Tokenize(targetBasename);
-        var excluded = new HashSet<string>(excludedUsernames ?? [], StringComparer.OrdinalIgnoreCase);
-
-        var scored = new List<(AutoReplaceCandidate Candidate, (double Meta, double Token, int Slot, int Speed, long Queue) Score)>();
-
-        foreach (var response in responses)
-        {
-            if (response is null || string.IsNullOrWhiteSpace(response.Username) || excluded.Contains(response.Username))
-            {
-                continue;
-            }
-
-            if (options.RequireFreeUploadSlot && !response.HasFreeUploadSlot)
-            {
-                continue;
-            }
-
-            if (response.UploadSpeed < options.MinimumUploadSpeed)
-            {
-                continue;
-            }
-
-            foreach (var file in response.Files ?? Enumerable.Empty<File>())
-            {
-                if (file is null || file.IsLocked || string.IsNullOrWhiteSpace(file.Filename))
-                {
-                    continue;
-                }
-
-                if (options.RequireSameExtension)
-                {
-                    var candidateExt = Extension(file.Filename);
-                    var sameExt = string.Equals(candidateExt, targetExtension, StringComparison.OrdinalIgnoreCase);
-
-                    if (!sameExt)
-                    {
-                        var groups = options.ExtensionGroups ?? DefaultExtensionGroups;
-                        sameExt = groups.Any(g => g.Contains(targetExtension, StringComparer.OrdinalIgnoreCase)
-                                                   && g.Contains(candidateExt, StringComparer.OrdinalIgnoreCase));
-                    }
-
-                    if (!sameExt)
-                    {
-                        continue;
-                    }
-                }
-
-                if (options.RequireExactSize)
-                {
-                    var byteDiff = Math.Abs(file.Size - originalSize);
-                    var byteToleranceOk = byteDiff <= options.SizeToleranceBytes;
-                    var percentToleranceOk = options.SizeTolerancePercent > 0
-                        && originalSize > 0
-                        && ((double)byteDiff / originalSize * 100) <= options.SizeTolerancePercent;
-
-                    if (!byteToleranceOk && !percentToleranceOk)
-                    {
-                        continue;
-                    }
-                }
-
-                var candidateBasename = Basename(file.Filename);
-                var candidateTokens = Tokenize(candidateBasename);
-                var tokenSimilarity = JaccardSimilarity(targetTokens, candidateTokens);
-
-                if (tokenSimilarity < options.MinTokenSimilarity)
-                {
-                    continue;
-                }
-
-                var metadataScore = ComputeMetadataScore(
-                    originalLength, originalBitRate, originalBitDepth, originalSampleRate,
-                    file.Length, file.BitRate, file.BitDepth, file.SampleRate);
-
-                var candidate = new AutoReplaceCandidate
-                {
-                    Username = response.Username,
-                    Filename = file.Filename,
-                    Size = file.Size,
-                    BitRate = file.BitRate,
-                    BitDepth = file.BitDepth,
-                    Length = file.Length,
-                    SampleRate = file.SampleRate,
-                };
-
-                var score = (
-                    Meta: metadataScore,
-                    Token: tokenSimilarity,
-                    Slot: response.HasFreeUploadSlot ? 1 : 0,
-                    Speed: response.UploadSpeed,
-                    Queue: -response.QueueLength);
-
-                scored.Add((candidate, score));
-            }
-        }
-
-        if (scored.Count > 0)
-        {
-            return scored
-                .OrderByDescending(x => x.Score.Meta)
-                .ThenByDescending(x => x.Score.Token)
-                .ThenByDescending(x => x.Score.Slot)
-                .ThenByDescending(x => x.Score.Speed)
-                .ThenByDescending(x => x.Score.Queue)
-                .ThenBy(x => x.Candidate.Username, StringComparer.OrdinalIgnoreCase)
-                .Select(x => x.Candidate)
-                .ToList();
-        }
-
-        return [];
+        return scored
+            .OrderByDescending(x => x.Score.Meta)
+            .ThenByDescending(x => x.Score.Token)
+            .ThenByDescending(x => x.Score.Slot)
+            .ThenByDescending(x => x.Score.Speed)
+            .ThenByDescending(x => x.Score.Queue)
+            .ThenBy(x => x.Candidate.Username, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <summary>

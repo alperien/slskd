@@ -1,7 +1,9 @@
 namespace slskd.Tests.Unit.Transfers.Downloads.AutoReplace;
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using slskd;
 using slskd.Search;
 using slskd.Transfers.Downloads;
@@ -107,7 +109,7 @@ public class AutoReplaceMatcherTests
     [Fact]
     public void Accepts_Size_Within_Percent_Tolerance_When_Byte_Tolerance_Exceeded()
     {
-        var options = new MatchOptions { MinTokenSimilarity = 1.0, SizeToleranceBytes = 10, SizeTolerancePercent = 5.0 };
+        var options = new MatchOptions { MinTokenSimilarity = 1.0, SizeToleranceBytes = 0, SizeTolerancePercent = 5.0 };
         var responses = new[] { Response("bob", [File("a\\Song.mp3", 104)]) };
 
         var result = AutoReplaceMatcher.SelectBest("user\\Song.mp3", 100, null, null, null, null, responses, null, options);
@@ -283,6 +285,185 @@ public class AutoReplaceMatcherTests
 
         Assert.NotNull(result);
         Assert.Equal("bob", result.Username);
+    }
+
+    // --- SelectAll Tests ---
+
+    [Fact]
+    public void SelectAll_Returns_Empty_When_No_Responses()
+    {
+        var result = AutoReplaceMatcher.SelectAll("user\\Song.mp3", 100, null, null, null, null, [], null, new MatchOptions { MinTokenSimilarity = 1.0 });
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void SelectAll_Returns_Empty_When_Filename_Null()
+    {
+        var responses = new[] { Response("bob", [File("a\\Song.mp3", 100)]) };
+
+        var result = AutoReplaceMatcher.SelectAll(null, 100, null, null, null, null, responses, null, new MatchOptions { MinTokenSimilarity = 1.0 });
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void SelectAll_Returns_Single_Candidate()
+    {
+        var responses = new[] { Response("bob", [File("a\\Song.mp3", 100)]) };
+
+        var result = AutoReplaceMatcher.SelectAll("user\\Song.mp3", 100, null, null, null, null, responses, null, new MatchOptions { MinTokenSimilarity = 1.0 });
+
+        Assert.Single(result);
+        Assert.Equal("bob", result[0].Username);
+    }
+
+    [Fact]
+    public void SelectAll_Returns_Multiple_Candidates_In_Order()
+    {
+        var responses = new[]
+        {
+            Response("slow", [File("a\\Song.mp3", 100)], hasFreeUploadSlot: true, uploadSpeed: 100),
+            Response("fast", [File("b\\Song.mp3", 100)], hasFreeUploadSlot: true, uploadSpeed: 9000),
+        };
+
+        var result = AutoReplaceMatcher.SelectAll("user\\Song.mp3", 100, null, null, null, null, responses, null, new MatchOptions { MinTokenSimilarity = 1.0 });
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("fast", result[0].Username);
+        Assert.Equal("slow", result[1].Username);
+    }
+
+    [Fact]
+    public void SelectAll_Excludes_Excluded_Usernames()
+    {
+        var responses = new[]
+        {
+            Response("bob", [File("a\\Song.mp3", 100)]),
+            Response("alice", [File("b\\Song.mp3", 100)]),
+        };
+
+        var result = AutoReplaceMatcher.SelectAll("user\\Song.mp3", 100, null, null, null, null, responses, ["bob"], new MatchOptions { MinTokenSimilarity = 1.0 });
+
+        Assert.Single(result);
+        Assert.Equal("alice", result[0].Username);
+    }
+
+    [Fact]
+    public void SelectAll_Filters_By_Extension_Groups()
+    {
+        var options = new MatchOptions { MinTokenSimilarity = 0.3, RequireSameExtension = true, ExtensionGroups = [["flac", "wav"]] };
+        var responses = new[] { Response("bob", [File("a\\Song.wav", 100)]) };
+
+        var result = AutoReplaceMatcher.SelectAll("user\\Song.flac", 100, null, null, null, null, responses, null, options);
+
+        Assert.Single(result);
+        Assert.Equal("bob", result[0].Username);
+    }
+
+    [Fact]
+    public void SelectAll_Rejects_When_No_Match()
+    {
+        var options = new MatchOptions { MinTokenSimilarity = 1.0 };
+        var responses = new[] { Response("bob", [File("a\\Different.mp3", 100)]) };
+
+        var result = AutoReplaceMatcher.SelectAll("user\\Song.mp3", 100, null, null, null, null, responses, null, options);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void SelectAll_Deduplicates_By_Username()
+    {
+        var responses = new[]
+        {
+            Response("bob", [File("a\\Song.mp3", 100), File("b\\Song.mp3", 100)]),
+        };
+
+        var result = AutoReplaceMatcher.SelectAll("user\\Song.mp3", 100, null, null, null, null, responses, null, new MatchOptions { MinTokenSimilarity = 1.0 });
+
+        // same user, two matching files — both should be returned
+        Assert.Equal(2, result.Count);
+        Assert.All(result, c => Assert.Equal("bob", c.Username));
+    }
+
+    // --- UserFailureTracker Tests ---
+
+    [Fact]
+    public void UserFailureTracker_Records_Failure()
+    {
+        var tracker = new UserFailureTracker(maxFailures: 2, window: TimeSpan.FromMinutes(30));
+
+        tracker.RecordFailure("bob");
+
+        Assert.False(tracker.IsUnreliable("bob")); // only 1 failure, need 2
+    }
+
+    [Fact]
+    public void UserFailureTracker_Marks_Unreliable_After_Threshold()
+    {
+        var tracker = new UserFailureTracker(maxFailures: 2, window: TimeSpan.FromMinutes(30));
+
+        tracker.RecordFailure("bob");
+        tracker.RecordFailure("bob");
+
+        Assert.True(tracker.IsUnreliable("bob"));
+    }
+
+    [Fact]
+    public void UserFailureTracker_Success_Resets_Failures()
+    {
+        var tracker = new UserFailureTracker(maxFailures: 2, window: TimeSpan.FromMinutes(30));
+
+        tracker.RecordFailure("bob");
+        tracker.RecordFailure("bob");
+        tracker.RecordSuccess("bob");
+
+        Assert.False(tracker.IsUnreliable("bob"));
+    }
+
+    [Fact]
+    public void UserFailureTracker_Decays_After_Window()
+    {
+        var tracker = new UserFailureTracker(maxFailures: 2, window: TimeSpan.FromMilliseconds(50));
+
+        tracker.RecordFailure("bob");
+        tracker.RecordFailure("bob");
+
+        Assert.True(tracker.IsUnreliable("bob"));
+
+        Thread.Sleep(100);
+
+        Assert.False(tracker.IsUnreliable("bob"));
+    }
+
+    [Fact]
+    public void UserFailureTracker_IsUnreliable_Returns_False_For_Unknown_User()
+    {
+        var tracker = new UserFailureTracker(maxFailures: 2, window: TimeSpan.FromMinutes(30));
+
+        Assert.False(tracker.IsUnreliable("unknown"));
+    }
+
+    [Fact]
+    public void UserFailureTracker_IsUnreliable_Returns_False_For_Null_Username()
+    {
+        var tracker = new UserFailureTracker(maxFailures: 2, window: TimeSpan.FromMinutes(30));
+
+        Assert.False(tracker.IsUnreliable(null));
+    }
+
+    [Fact]
+    public void UserFailureTracker_Records_Multiple_Users_Independently()
+    {
+        var tracker = new UserFailureTracker(maxFailures: 2, window: TimeSpan.FromMinutes(30));
+
+        tracker.RecordFailure("bob");
+        tracker.RecordFailure("alice");
+        tracker.RecordFailure("bob");
+
+        Assert.True(tracker.IsUnreliable("bob"));
+        Assert.False(tracker.IsUnreliable("alice")); // only 1 failure
     }
 
     // --- Token Similarity Tests ---
