@@ -1,0 +1,118 @@
+// <copyright file="Extensions.cs" company="JP Dillingham">
+//           ▄▄▄▄     ▄▄▄▄     ▄▄▄▄
+//     ▄▄▄▄▄▄█  █▄▄▄▄▄█  █▄▄▄▄▄█  █
+//     █__ --█  █__ --█    ◄█  -  █
+//     █▄▄▄▄▄█▄▄█▄▄▄▄▄█▄▄█▄▄█▄▄▄▄▄█
+//   ┍━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━ ━  ━┉   ┉     ┉
+//   │ Copyright (c) JP Dillingham.
+//   │
+//   │ This program is free software: you can redistribute it and/or modify
+//   │ it under the terms of the GNU Affero General Public License as published
+//   │ by the Free Software Foundation, version 3.
+//   │
+//   │ This program is distributed in the hope that it will be useful,
+//   │ but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   │ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//   │ GNU Affero General Public License for more details.
+//   │
+//   │ You should have received a copy of the GNU Affero General Public License
+//   │ along with this program.  If not, see https://www.gnu.org/licenses/.
+//   │
+//   │ This program is distributed with Additional Terms pursuant to Section 7
+//   │ of the AGPLv3.  See the LICENSE file in the root directory of this
+//   │ project for the complete terms and conditions.
+//   │
+//   │ https://slskd.org
+//   │
+//   ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ ╌ ╌╌╌╌ ╌
+//   │ SPDX-FileCopyrightText: JP Dillingham
+//   │ SPDX-License-Identifier: AGPL-3.0-only
+//   ╰───────────────────────────────────────────╶──── ─ ─── ─  ── ──┈  ┈
+// </copyright>
+
+namespace slskd
+{
+    using System;
+    using System.Net.Sockets;
+    using Soulseek;
+
+    /// <summary>
+    ///     Core extensions; extensions for types specific to Soulseek or slskd.
+    /// </summary>
+    public static class Extensions
+    {
+        /// <summary>
+        ///     Redacts this instance of Options, replacing properties marked with <see cref="SecretAttribute"/> with '*****'.
+        /// </summary>
+        /// <remarks>
+        ///     Creates a deep clone before redacting.
+        /// </remarks>
+        /// <param name="options">The Options instance to redact.</param>
+        /// <returns>A redacted instance.</returns>
+        public static Options Redact(this Options options)
+        {
+            var redacted = options.ToJson().FromJson<Options>();
+            Redactor.Redact(redacted, redactWith: "*****");
+            return redacted;
+        }
+
+        /// <summary>
+        ///     Redacts this instance of OptionsOverlay, replacing properties marked with <see cref="SecretAttribute"/> with '*****'.
+        /// </summary>
+        /// <remarks>
+        ///     Creates a deep clone before redacting.
+        /// </remarks>
+        /// <param name="options">The OptionsOverlay instance to redact.</param>
+        /// <returns>A redacted instance.</returns>
+        public static OptionsOverlay Redact(this OptionsOverlay options)
+        {
+            var redacted = options.ToJson().FromJson<OptionsOverlay>();
+            Redactor.Redact(redacted, redactWith: "*****");
+            return redacted;
+        }
+
+        /// <summary>
+        ///     Creates a copy of this instance with the specified parameters changed.
+        /// </summary>
+        /// <param name="o">The options instance to copy.</param>
+        /// <param name="readBufferSize">The read buffer size for underlying TCP connections.</param>
+        /// <param name="writeBufferSize">The write buffer size for underlying TCP connections.</param>
+        /// <param name="writeQueueSize">The size of the write queue for double buffered writes.</param>
+        /// <param name="connectTimeout">The connection timeout, in milliseconds, for client and peer TCP connections.</param>
+        /// <param name="inactivityTimeout">The inactivity timeout, in milliseconds, for peer TCP connections.</param>
+        /// <param name="proxyOptions">Optional SOCKS 5 proxy configuration options.</param>
+        /// <param name="configureSocket">
+        ///     The delegate invoked during instantiation to configure the server Socket instance.
+        /// </param>
+        /// <returns>The new instance.</returns>
+        public static ConnectionOptions With(
+            this ConnectionOptions o,
+            int? readBufferSize = null,
+            int? writeBufferSize = null,
+            int? writeQueueSize = null,
+            int? connectTimeout = null,
+            int? inactivityTimeout = null,
+            ProxyOptions proxyOptions = null,
+            Action<Socket> configureSocket = null) => new ConnectionOptions(
+                readBufferSize: readBufferSize ?? o.ReadBufferSize,
+                writeBufferSize: writeBufferSize ?? o.WriteBufferSize,
+                writeQueueSize: writeQueueSize ?? o.WriteQueueSize,
+                connectTimeout: connectTimeout ?? o.ConnectTimeout,
+                inactivityTimeout: inactivityTimeout ?? o.InactivityTimeout,
+                proxyOptions: proxyOptions ?? o.ProxyOptions,
+                configureSocket: configureSocket ?? o.ConfigureSocket);
+
+        /// <summary>
+        ///     Creates a new instance of <see cref="UserStatisticsState"/> from this instance of <see cref="UserStatistics"/>.
+        /// </summary>
+        /// <param name="stats">The UserStatistics instance from which to copy data.</param>
+        /// <returns>The new instance.</returns>
+        public static UserStatisticsState ToUserStatisticsState(this UserStatistics stats) => new()
+        {
+            AverageSpeed = stats.AverageSpeed,
+            DirectoryCount = stats.DirectoryCount,
+            FileCount = stats.FileCount,
+            UploadCount = stats.UploadCount,
+        };
+    }
+}

@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "slskd": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:5031;http://localhost:5030"
+    }
+  }
+}

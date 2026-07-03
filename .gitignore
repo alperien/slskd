@@ -1,0 +1,10 @@
+bin/
+obj/
+node_modules/
+publish/
+publish-standalone/
+.vs/
+*.user
+*.suo
+.DS_Store
+Thumbs.db

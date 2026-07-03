@@ -1,0 +1,70 @@
+// <copyright file="Host.cs" company="JP Dillingham">
+//           ▄▄▄▄     ▄▄▄▄     ▄▄▄▄
+//     ▄▄▄▄▄▄█  █▄▄▄▄▄█  █▄▄▄▄▄█  █
+//     █__ --█  █__ --█    ◄█  -  █
+//     █▄▄▄▄▄█▄▄█▄▄▄▄▄█▄▄█▄▄█▄▄▄▄▄█
+//   ┍━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━ ━  ━┉   ┉     ┉
+//   │ Copyright (c) JP Dillingham.
+//   │
+//   │ This program is free software: you can redistribute it and/or modify
+//   │ it under the terms of the GNU Affero General Public License as published
+//   │ by the Free Software Foundation, version 3.
+//   │
+//   │ This program is distributed in the hope that it will be useful,
+//   │ but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   │ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//   │ GNU Affero General Public License for more details.
+//   │
+//   │ You should have received a copy of the GNU Affero General Public License
+//   │ along with this program.  If not, see https://www.gnu.org/licenses/.
+//   │
+//   │ This program is distributed with Additional Terms pursuant to Section 7
+//   │ of the AGPLv3.  See the LICENSE file in the root directory of this
+//   │ project for the complete terms and conditions.
+//   │
+//   │ https://slskd.org
+//   │
+//   ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ ╌ ╌╌╌╌ ╌
+//   │ SPDX-FileCopyrightText: JP Dillingham
+//   │ SPDX-License-Identifier: AGPL-3.0-only
+//   ╰───────────────────────────────────────────╶──── ─ ─── ─  ── ──┈  ┈
+// </copyright>
+
+namespace slskd.Shares
+{
+    using System.Collections.Generic;
+    using System.Linq;
+
+    /// <summary>
+    ///     A share host.
+    /// </summary>
+    public record Host
+    {
+        /// <summary>
+        ///     Initializes a new instance of the <see cref="Host"/> class.
+        /// </summary>
+        /// <param name="name">The name of the host.</param>
+        /// <param name="shares">The collection of hosted shares.</param>
+        public Host(string name, IEnumerable<Share> shares = null)
+        {
+            Name = name;
+            Shares = shares ?? Enumerable.Empty<Share>();
+        }
+
+        /// <summary>
+        ///     Gets a value indicating whether this host is the local host.
+        /// </summary>
+        public bool IsLocalHost => Name == Program.LocalHostName;
+
+        /// <summary>
+        ///     Gets the name of the host.
+        /// </summary>
+        /// <remarks>Corresponds to the configured <see cref="Options.InstanceName"/> of the host, or "local" for the local host.</remarks>
+        public string Name { get; }
+
+        /// <summary>
+        ///     Gets the collection of hosted shares.
+        /// </summary>
+        public IEnumerable<Share> Shares { get; init; }
+    }
+}

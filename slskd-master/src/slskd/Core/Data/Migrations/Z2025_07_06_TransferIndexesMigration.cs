@@ -1,0 +1,107 @@
+// <copyright file="Z2025_07_06_TransferIndexesMigration.cs" company="JP Dillingham">
+//           ▄▄▄▄     ▄▄▄▄     ▄▄▄▄
+//     ▄▄▄▄▄▄█  █▄▄▄▄▄█  █▄▄▄▄▄█  █
+//     █__ --█  █__ --█    ◄█  -  █
+//     █▄▄▄▄▄█▄▄█▄▄▄▄▄█▄▄█▄▄█▄▄▄▄▄█
+//   ┍━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━ ━  ━┉   ┉     ┉
+//   │ Copyright (c) JP Dillingham.
+//   │
+//   │ This program is free software: you can redistribute it and/or modify
+//   │ it under the terms of the GNU Affero General Public License as published
+//   │ by the Free Software Foundation, version 3.
+//   │
+//   │ This program is distributed in the hope that it will be useful,
+//   │ but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   │ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//   │ GNU Affero General Public License for more details.
+//   │
+//   │ You should have received a copy of the GNU Affero General Public License
+//   │ along with this program.  If not, see https://www.gnu.org/licenses/.
+//   │
+//   │ This program is distributed with Additional Terms pursuant to Section 7
+//   │ of the AGPLv3.  See the LICENSE file in the root directory of this
+//   │ project for the complete terms and conditions.
+//   │
+//   │ https://slskd.org
+//   │
+//   ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ ╌ ╌╌╌╌ ╌
+//   │ SPDX-FileCopyrightText: JP Dillingham
+//   │ SPDX-License-Identifier: AGPL-3.0-only
+//   ╰───────────────────────────────────────────╶──── ─ ─── ─  ── ──┈  ┈
+// </copyright>
+
+namespace slskd.Migrations;
+
+using System;
+using System.Linq;
+using Microsoft.Data.Sqlite;
+using Serilog;
+
+/// <summary>
+///     Updates the Transfers table to add indexes on the Direction and State columns.
+/// </summary>
+public class Z2025_07_06_TransferIndexesMigration : IMigration
+{
+    public Z2025_07_06_TransferIndexesMigration(ConnectionStringDictionary connectionStrings)
+    {
+        ConnectionString = connectionStrings[Database.Transfers];
+    }
+
+    private ILogger Log { get; } = Serilog.Log.ForContext<Z2025_07_06_TransferIndexesMigration>();
+    private string ConnectionString { get; }
+
+    public bool NeedsToBeApplied()
+    {
+        // check to see if *BOTH* of the indexes are in place. if one or both are missing, we must apply
+        var idxes = SchemaInspector.GetDatabaseIndexes(ConnectionString);
+        var txfers = idxes["Transfers"];
+
+        var directionExists = txfers.Any(c => c.Name.Equals("IDX_Transfers_Direction", StringComparison.OrdinalIgnoreCase));
+        var stateExists = txfers.Any(c => c.Name.Equals("IDX_Transfers_State", StringComparison.OrdinalIgnoreCase));
+
+        if (directionExists && stateExists)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    public void Apply()
+    {
+        if (!NeedsToBeApplied())
+        {
+            Log.Information("> Migration {Name} is not necessary or has already been applied", nameof(Z2025_07_06_TransferIndexesMigration));
+            return;
+        }
+
+        using var connection = new SqliteConnection(ConnectionString);
+        connection.Open();
+
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            Log.Information("> Adding missing index(es) on the Transfers table...");
+
+            var directionCommand = new SqliteCommand(@"
+                CREATE INDEX IF NOT EXISTS IDX_Transfers_Direction ON Transfers (Direction)
+            ", connection, transaction);
+            directionCommand.ExecuteNonQuery();
+
+            var stateCommand = new SqliteCommand(@"
+                CREATE INDEX IF NOT EXISTS IDX_Transfers_State ON Transfers (State)
+            ", connection, transaction);
+            stateCommand.ExecuteNonQuery();
+
+            Log.Information("> Index(es) created");
+            transaction.Commit();
+            Log.Information("> Done!");
+        }
+        catch (Exception)
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+}
